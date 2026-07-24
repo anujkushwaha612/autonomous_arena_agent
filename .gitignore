@@ -1,0 +1,10 @@
+node_modules/
+.arena-profile/
+*.patch
+*.b64
+patch.txt
+.DS_Store
+
+# Exclude package-locks to keep patches small & clean
+package-lock.json
+app/package-lock.json

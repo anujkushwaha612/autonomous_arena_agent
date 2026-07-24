@@ -1,0 +1,16 @@
+{
+  "name": "agentchain-worker",
+  "version": "1.0.0",
+  "description": "Autonomous AgentChain pipeline orchestrator",
+  "main": "worker.js",
+  "dependencies": {
+    "playwright": "^1.48.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "start": "node worker.js",
+    "login": "node login-helper.js"
+  },
+  "author": "",
+  "license": "ISC"
+}
