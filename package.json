@@ -1,16 +1,16 @@
 {
-  "name": "agentchain-worker",
-  "version": "1.0.0",
-  "description": "Autonomous AgentChain pipeline orchestrator",
+  "name": "agentchain",
+  "version": "2.0.0",
+  "description": "Autonomous multi-agent coding pipeline with out-of-band patch transport",
   "main": "worker.js",
+  "scripts": {
+    "start": "node worker.js",
+    "login": "node scripts/login.js",
+    "ingest": "node fastcapture/ingest-server.js",
+    "verify": "node fastcapture/verify.js"
+  },
   "dependencies": {
     "playwright": "^1.48.0"
   },
-  "devDependencies": {},
-  "scripts": {
-    "start": "node worker.js",
-    "login": "node login-helper.js"
-  },
-  "author": "",
   "license": "ISC"
 }

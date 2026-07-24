@@ -1,64 +1,14 @@
 # AgentChain — Multi-Agent Coding Pipeline
 
-You are an autonomous coding agent. Your job is to complete **exactly ONE task** from the task list below, then hand off to the next agent.
+The **task brain**. Each agent completes exactly ONE task, then hands off.
 
-## 1. Setup
+> Protocol lives in `AGENT_PROMPT.md` (the worker pastes it into Arena each round).
+> Summary: clone → read this file + `NEXT.md` → do the first unfinished task →
+> flip it to `DONE` → upload the patch via curl → print `%%%RECEIPT:xxxxxxxxxxxx%%%`.
 
-```bash
-git clone https://github.com/anujkushwaha612/autonomous_arena_agent.git
-cd autonomous_arena_agent
-```
+**Never paste a diff or base64 into chat.** The patch is uploaded out-of-band.
 
-## 2. Protocol
-
-1. Read `NEXT.md` for handoff notes from the previous agent
-2. Find the **first task with `STATUS: TODO`** in the task list below
-3. **Create the `app/` directory if it doesn't exist** (run: `mkdir -p app`)
-4. **Complete that task fully** — write working code, test it, make sure it runs
-5. Update the task status from `TODO` to `DONE`
-6. Update `NEXT.md` with notes for the next agent
-7. Generate a compressed patch of your changes
-8. Output the patch in the exact wire format below
-
-## 3. Wire format (output this EXACTLY at the end of your turn)
-
-⚠️ **CRITICAL: You must actually DO the work first, then output the patch. Do NOT just output the markers!**
-
-The patch MUST be compressed and base64-encoded to prevent markdown rendering from corrupting the diff and to keep the output short.
-
-**Steps to generate the patch:**
-1. Complete your assigned task (create/edit files in `app/`, update `agents.md` and `NEXT.md`)
-2. Run: `git add -A`
-3. Run: `git diff --cached | gzip -c | base64 -w 0 > patch.b64`
-4. Run: `cat patch.b64` to get the base64 string
-5. Output the base64 string between the markers below
-
-**Output format:**
-
-═══PATCH_START═══
-<YOUR_ACTUAL_BASE64_STRING_FROM_CAT_PATCH.B64>
-═══PATCH_END═══
-%%%HANDOFF_COMPLETE%%%
-
-**Rules:**
-- The content between markers must be the ACTUAL base64 string from `cat patch.b64`
-- Do NOT output placeholder text — output the REAL base64 string
-- Do NOT wrap in code fences, do NOT add commentary inside the markers
-- The base64 string is typically 200-500 characters (compressed)
-- If blocked: output `%%%HANDOFF_FAILED%%% <reason>` (no patch)
-- If no TODO tasks left: output `%%%ALL_DONE%%%` (no patch)
-
-## 4. Hard rules
-
-- **DO NOT** run `git commit` or `git push` — the worker handles that
-- **DO NOT** output the raw diff — always compress and base64-encode it
-- **DO NOT** skip the compression step — it prevents markdown corruption
-- **DO NOT** output placeholder text — the worker will reject it
-- **DO** test your code before generating the patch
-- **DO** update `agents.md` to mark your task as DONE
-- **DO** update `NEXT.md` with handoff notes
-
-## 5. Task list
+## Task list
 
 ### T1: WebSocket Server Foundation
 **STATUS: TODO**
@@ -482,7 +432,4 @@ Add file sharing and search functionality.
 
 ## Activity Log
 
-<!-- Agents append here -->
-- T1: WebSocket Server Foundation completed. Created app/package.json and app/server.js with Express, HTTP server, ws WebSocket server, and connection tracking.
-- T2: Basic Message Broadcasting completed. Updated app/server.js to handle incoming JSON messages, append id/timestamp, and broadcast to all connected clients.
-
+<!-- Agents append one line here per completed task -->

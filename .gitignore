@@ -1,10 +1,15 @@
 node_modules/
 .arena-profile/
-*.patch
-*.b64
-patch.txt
-.DS_Store
+app/node_modules/
 
-# Exclude package-locks to keep patches small & clean
+# runtime patch drops (raw agent payloads) — never commit
+fastcapture/drops/*
+!fastcapture/drops/.gitkeep
+
+# transient
+.drop-*.patch
+.drop-*.bundle
+*.log
+.DS_Store
 package-lock.json
 app/package-lock.json
