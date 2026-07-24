@@ -67,7 +67,7 @@ async function main() {
   let ingestUrl = CONFIG.ingestUrl;
   let tunnelProc = null;
   if (!ingestUrl && CONFIG.tunnel) {
-    console.log('\n▸ Opening tunnel…');
+    console.log('\n▸ Opening tunnel (so the agent can reach your machine)…');
     const t = await startTunnel(CONFIG.ingestPort);
     ingestUrl = t.url;
     tunnelProc = t.proc;
@@ -85,6 +85,29 @@ async function main() {
     if (tunnelProc) { try { tunnelProc.kill(); } catch {} }
   };
   process.on('SIGINT', () => { console.log('\nInterrupted.'); cleanup(); process.exit(130); });
+
+  // 2b. Prove the URL works from the OUTSIDE before spending a whole round on
+  // it. Without this, a broken tunnel only surfaces as "upload endpoint is
+  // unreachable" two minutes later, with no clue why.
+  console.log('\n▸ Self-testing the public URL…');
+  const reachable = await selfTest(ingestUrl);
+  if (!reachable.ok) {
+    console.error(`
+  ❌ Your ingest URL is NOT reachable from the internet.
+     URL:   ${ingestUrl}
+     Error: ${reachable.error}
+
+     The agent would fail with "upload endpoint unreachable", so stopping now.
+
+     Things to try:
+       • Re-run — trycloudflare quick tunnels are occasionally flaky.
+       • Check a firewall/VPN isn't blocking cloudflared.
+       • Supply your own URL:  INGEST_URL=https://... TUNNEL=off node worker.js
+`);
+    cleanup();
+    process.exit(1);
+  }
+  console.log(`  ✅ reachable from the internet (${reachable.ms}ms round trip)`);
 
   // 3. round loop
   try {
@@ -175,6 +198,44 @@ async function main() {
 
   console.log('\nWorker finished.\n');
   process.exit(0);
+}
+
+/**
+ * Hit /health over the public URL, the same way the agent will.
+ * Retries briefly: a fresh quick tunnel can take a few seconds to propagate.
+ */
+function selfTest(baseUrl, attempts = 6) {
+  const mod = baseUrl.startsWith('https') ? require('https') : require('http');
+  const started = Date.now();
+
+  const once = () =>
+    new Promise((resolve) => {
+      const req = mod.get(
+        `${baseUrl.replace(/\/$/, '')}/health`,
+        { headers: { 'User-Agent': 'agentchain-selftest' }, timeout: 12000 },
+        (res) => {
+          const chunks = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () => {
+            const body = Buffer.concat(chunks).toString();
+            if (res.statusCode === 200 && body.includes('"ok"')) resolve({ ok: true });
+            else resolve({ ok: false, error: `HTTP ${res.statusCode}: ${body.slice(0, 120)}` });
+          });
+        }
+      );
+      req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'timed out' }); });
+      req.on('error', (e) => resolve({ ok: false, error: e.code || e.message }));
+    });
+
+  return (async () => {
+    let last = { ok: false, error: 'no attempt made' };
+    for (let i = 0; i < attempts; i++) {
+      last = await once();
+      if (last.ok) return { ok: true, ms: Date.now() - started };
+      await new Promise((r) => setTimeout(r, 2500));
+    }
+    return last;
+  })();
 }
 
 // ── setup checks ─────────────────────────────────────────────────────────────

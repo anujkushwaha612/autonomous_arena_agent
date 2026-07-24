@@ -13,3 +13,4 @@ fastcapture/drops/*
 .DS_Store
 package-lock.json
 app/package-lock.json
+.bin

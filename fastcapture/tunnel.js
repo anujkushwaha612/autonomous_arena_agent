@@ -116,7 +116,10 @@ async function startTunnel(port, { timeoutMs = 60000, log = console.log } = {}) 
   const bin = await ensureCloudflared(log);
 
   return new Promise((resolve, reject) => {
-    const proc = spawn(bin, ['tunnel', '--url', `http://localhost:${port}`, '--no-autoupdate'], {
+    // Use 127.0.0.1, NOT "localhost". On Windows localhost resolves to ::1
+    // first, but the ingest server binds IPv4 loopback — cloudflared would
+    // get ECONNREFUSED and every upload would fail as "unreachable".
+    const proc = spawn(bin, ['tunnel', '--url', `http://127.0.0.1:${port}`, '--no-autoupdate'], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
