@@ -150,12 +150,12 @@ function applyDrop({ repoRoot, dropDir, receipt, round, gate = null }) {
           (threeWayErr.stderr && threeWayErr.stderr.toString()) || threeWayErr.message;
         rollback();
         fs.rmSync(patchFile, { force: true });
-        throw new Error(
+        throw Object.assign(new Error(
           `patch did not apply cleanly (working tree restored).\n` +
             `      ${stderr.trim().split('\n').join('\n      ')}\n` +
             `      Usually means the agent diffed against a stale base — ` +
             `pull/rebase and re-run the round.`
-        );
+        ), { gateErrors: ['patch did not apply cleanly — your diff was built against a stale base'] });
       }
     }
 
@@ -181,6 +181,9 @@ function applyDrop({ repoRoot, dropDir, receipt, round, gate = null }) {
             result.errors.map((e) => `      • ${e}`).join('\n')
         );
         err.gateFailure = true;
+        // Structured list so the worker can feed the exact problems back to
+        // the agent that caused them, instead of one opaque string.
+        err.gateErrors = result.errors;
         throw err;
       }
     }

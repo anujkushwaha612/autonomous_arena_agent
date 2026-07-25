@@ -91,6 +91,15 @@ module.exports = {
   // checks always run; VERIFY_CMD adds your own tests/lint/build.
   gateEnabled: process.env.GATE !== 'off',
 
+  // ── repair loop ───────────────────────────────────────────────────────────
+  // When the gate rejects a patch, paste the exact errors back into the SAME
+  // chat so the agent that wrote the code can fix it with full context. This is
+  // the difference between a gate that judges and a gate that teaches.
+  //   REPAIR=off      disable entirely (one-shot agents)
+  //   MAX_REPAIRS=3   how many fix attempts per round
+  repairEnabled: process.env.REPAIR !== 'off',
+  maxRepairAttempts: Number(process.env.MAX_REPAIRS || 2),
+
   // ── project shape (task-type agnostic) ────────────────────────────────────
   // Where the agent's work lives. Defaults to `app/` but can be anything:
   //   WORK_DIR=notebooks   (an ML project)
