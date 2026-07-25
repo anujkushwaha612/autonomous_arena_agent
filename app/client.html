@@ -46,6 +46,21 @@
     form#composer button { border:0; border-radius:10px; padding:0 17px; background:var(--brand); color:white; font:inherit; font-weight:700; cursor:pointer; }
     
     .hidden { display: none !important; }
+
+    /* Reactions */
+    .message-wrap { position: relative; }
+    .message-wrap:hover .react-btn { opacity: 1; pointer-events: auto; }
+    .react-btn { position: absolute; top: -6px; right: 6px; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line); background: white; cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.15s; z-index: 2; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+    .react-btn:hover { background: #eef1ff; }
+    .emoji-picker { display: none; position: absolute; top: 22px; right: 0; background: white; border: 1px solid var(--line); border-radius: 10px; padding: 6px; z-index: 10; box-shadow: 0 6px 20px rgba(0,0,0,0.12); white-space: nowrap; }
+    .emoji-picker.open { display: flex; gap: 4px; }
+    .emoji-picker span { padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: 18px; transition: background 0.15s; }
+    .emoji-picker span:hover { background: #eef1ff; }
+    .reactions-bar { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+    .reaction-pill { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 12px; border: 1px solid var(--line); background: #f4f6fb; font-size: 13px; cursor: pointer; transition: background 0.15s; }
+    .reaction-pill:hover { background: #eef1ff; }
+    .reaction-pill.mine { background: #e0e4ff; border-color: var(--brand); }
+    .reaction-pill .count { font-size: 11px; color: var(--muted); }
   </style>
 </head>
 <body>
@@ -246,6 +261,10 @@
           if (data.roomId === currentRoomId) {
             displayMessage(data);
           }
+        } else if (data.type === 'reaction') {
+          if (data.message && data.message.roomId === currentRoomId) {
+            updateMessageInDOM(data.message);
+          }
         } else if (data.type === 'error') {
           console.error(data.error);
         }
@@ -260,19 +279,147 @@
       };
     }
 
+    const COMMON_EMOJIS = ['👍', '❤️', '😂', '🎉', '👀'];
+
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
     function displayMessage(msg) {
       const div = document.createElement('article');
       div.className = `message ${msg.username === username ? 'mine' : ''}`;
+      div.setAttribute('data-msg-id', msg.id);
+
+      const wrap = document.createElement('div');
+      wrap.className = 'message-wrap';
+
       const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      div.innerHTML = `
+
+      // Reaction button + emoji picker
+      const reactBtn = document.createElement('button');
+      reactBtn.className = 'react-btn';
+      reactBtn.innerHTML = '😊';
+      reactBtn.title = 'Add reaction';
+
+      const picker = document.createElement('div');
+      picker.className = 'emoji-picker';
+      COMMON_EMOJIS.forEach((emoji) => {
+        const span = document.createElement('span');
+        span.textContent = emoji;
+        span.onclick = (e) => {
+          e.stopPropagation();
+          toggleReaction(msg.id, emoji);
+          picker.classList.remove('open');
+        };
+        picker.appendChild(span);
+      });
+
+      reactBtn.onclick = (e) => {
+        e.stopPropagation();
+        picker.classList.toggle('open');
+      };
+
+      // Close picker when clicking elsewhere
+      document.addEventListener('click', function closePicker(e) {
+        if (!picker.contains(e.target) && e.target !== reactBtn) {
+          picker.classList.remove('open');
+        }
+      }, { once: false });
+
+      const metaHtml = `
         <div class="meta">
-          <span class="name">${msg.username}</span>
+          <span class="name">${esc(msg.username)}</span>
           <time>${time}</time>
         </div>
-        <div class="bubble">${msg.content}</div>
+        <div class="bubble">${esc(msg.content)}</div>
       `;
+
+      const reactionsBar = document.createElement('div');
+      reactionsBar.className = 'reactions-bar';
+      renderReactions(reactionsBar, msg);
+
+      wrap.innerHTML = metaHtml;
+      wrap.appendChild(reactionsBar);
+      wrap.appendChild(reactBtn);
+      wrap.appendChild(picker);
+      div.appendChild(wrap);
       messages.appendChild(div);
       messages.scrollTop = messages.scrollHeight;
+    }
+
+    function renderReactions(container, msg) {
+      container.innerHTML = '';
+      if (!msg.reactions) return;
+      Object.entries(msg.reactions).forEach(([emoji, users]) => {
+        if (!users || users.length === 0) return;
+        const pill = document.createElement('span');
+        pill.className = 'reaction-pill';
+        if (users.includes(username)) pill.classList.add('mine');
+        pill.innerHTML = `${emoji} <span class="count">${users.length}</span>`;
+        pill.title = users.join(', ');
+        pill.onclick = () => toggleReaction(msg.id, emoji);
+        container.appendChild(pill);
+      });
+    }
+
+    function updateMessageInDOM(msg) {
+      const article = document.querySelector(`[data-msg-id="${msg.id}"]`);
+      if (!article) return;
+      const bar = article.querySelector('.reactions-bar');
+      if (bar) renderReactions(bar, msg);
+    }
+
+    async function toggleReaction(messageId, emoji) {
+      // Find the message element to check if we already reacted
+      const article = document.querySelector(`[data-msg-id="${messageId}"]`);
+      const pill = article ? article.querySelector(`.reaction-pill:has(+ *)`) : null;
+      // Check if current user already has this reaction by inspecting DOM
+      let hasReaction = false;
+      if (article) {
+        const bar = article.querySelector('.reactions-bar');
+        if (bar) {
+          const pills = bar.querySelectorAll('.reaction-pill');
+          pills.forEach((p) => {
+            if (p.textContent.startsWith(emoji) && p.classList.contains('mine')) {
+              hasReaction = true;
+            }
+          });
+        }
+      }
+
+      if (hasReaction) {
+        // Remove reaction via REST
+        try {
+          const res = await fetch(`/messages/${encodeURIComponent(messageId)}/react/${encodeURIComponent(emoji)}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const data = await res.json();
+          if (data.success) updateMessageInDOM(data.message);
+        } catch (err) {
+          console.error('Failed to remove reaction:', err);
+        }
+      } else {
+        // Add reaction via WebSocket for speed, REST as fallback
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({
+            type: 'reaction',
+            messageId,
+            emoji,
+            action: 'add'
+          }));
+        } else {
+          try {
+            const res = await fetch(`/messages/${encodeURIComponent(messageId)}/react`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({ emoji })
+            });
+            const data = await res.json();
+            if (data.success) updateMessageInDOM(data.message);
+          } catch (err) {
+            console.error('Failed to add reaction:', err);
+          }
+        }
+      }
     }
 
     document.getElementById('composer').onsubmit = (e) => {

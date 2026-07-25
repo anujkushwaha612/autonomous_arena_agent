@@ -105,6 +105,70 @@ function reset() {
   persist();
 }
 
+/**
+ * Find a message by its ID across all rooms.
+ * @param {string} messageId
+ * @returns {{ message: object, roomId: string } | null}
+ */
+function findMessageById(messageId) {
+  const store = load();
+  for (const [roomId, list] of Object.entries(store)) {
+    if (!Array.isArray(list)) continue;
+    const idx = list.findIndex((m) => m.id === messageId);
+    if (idx !== -1) {
+      return { message: list[idx], roomId, index: idx };
+    }
+  }
+  return null;
+}
+
+/**
+ * Add a reaction to a message.
+ * @param {string} messageId
+ * @param {string} username
+ * @param {string} emoji
+ * @returns {object} the updated message (with reactions), or null if not found
+ */
+function addReaction(messageId, username, emoji) {
+  const found = findMessageById(messageId);
+  if (!found) return null;
+
+  const { message } = found;
+  if (!message.reactions) {
+    message.reactions = {};
+  }
+  if (!message.reactions[emoji]) {
+    message.reactions[emoji] = [];
+  }
+  if (!message.reactions[emoji].includes(username)) {
+    message.reactions[emoji].push(username);
+  }
+  persist();
+  return message;
+}
+
+/**
+ * Remove a reaction from a message.
+ * @param {string} messageId
+ * @param {string} username
+ * @param {string} emoji
+ * @returns {object} the updated message (with reactions), or null if not found
+ */
+function removeReaction(messageId, username, emoji) {
+  const found = findMessageById(messageId);
+  if (!found) return null;
+
+  const { message } = found;
+  if (!message.reactions || !message.reactions[emoji]) return message;
+
+  message.reactions[emoji] = message.reactions[emoji].filter((u) => u !== username);
+  if (message.reactions[emoji].length === 0) {
+    delete message.reactions[emoji];
+  }
+  persist();
+  return message;
+}
+
 // Make sure data/messages.json exists with the default room on first require.
 load();
 if (!fs.existsSync(MESSAGES_FILE)) {
@@ -118,5 +182,8 @@ module.exports = {
   saveMessage,
   getMessages,
   getRoomIds,
+  findMessageById,
+  addReaction,
+  removeReaction,
   reset,
 };

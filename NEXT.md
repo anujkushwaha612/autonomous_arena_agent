@@ -1,14 +1,13 @@
-T7 is complete. Multiple chat rooms are now supported with full authentication and room-scoped messaging.
+T8 is complete. Message reactions are now fully supported with emoji picker and real-time updates.
 
 **What landed**
-- `app/storage.js` — Added room management: `createRoom`, `getRooms`, `getRoom`, `joinRoom`, `leaveRoom`, `getRoomMembers`. Implemented dual persistence for `messages.json` and `rooms.json`.
-- `app/server.js` — Added authenticated REST endpoints: `GET /rooms`, `POST /rooms`, `POST /rooms/:id/join`, `POST /rooms/:id/leave`. Updated WebSocket broadcast logic to `broadcastToRoom` which only sends messages to members of the target room.
-- `app/client.html` — Major update: Added Login/Register UI (integrated with T6 endpoints), room list sidebar, Create Room functionality, and room-scoped message switching/display.
-- `app/data/rooms.json` — Initialized with an empty object `{}`.
+- `app/storage.js` — Added `findMessageById(messageId)`, `addReaction(messageId, username, emoji)`, and `removeReaction(messageId, username, emoji)`. Message structure extended with `reactions: { '👍': ['user1', 'user2'] }`. All changes atomically persisted.
+- `app/server.js` — Added `POST /messages/:id/react` (body: `{ emoji }`) and `DELETE /messages/:id/react/:emoji` authenticated endpoints. Both broadcast the updated message via `broadcastToRoom` as `{ type: 'reaction', message }`. WebSocket handler also accepts `{ type: 'reaction', messageId, emoji, action: 'add'|'remove' }` for low-latency reactions.
+- `app/client.html` — Added hover-reveal reaction button (😊) on each message, emoji picker popup with 👍 ❤️ 😂 🎉 👀, reaction pills below messages showing emoji + count, click-to-toggle (adds if absent, removes if present), and `.mine` highlight class for own reactions. Client handles `reaction` WebSocket events to update DOM in real time.
 
 **Verified:**
 - Server starts and listens on port 3000.
-- `app/data/rooms.json` is correctly managed.
-- `npm install` run in `app/`.
+- `npm install` succeeds.
+- Storage `addReaction`/`removeReaction`/`findMessageById` unit-tested and working.
 
-**Next task is T8: Message Reactions** — update `app/storage.js` to support adding/removing reactions on messages; update `app/server.js` with `POST /messages/:id/react` and `DELETE /messages/:id/react/:emoji` endpoints and broadcast reaction updates via WebSocket; update `app/client.html` with reaction buttons, emoji picker, and reaction count displays.
+**Next task is T9: Message Replies (Threading)** — update `app/storage.js` with `replyToMessage` and `getReplies`; update `app/server.js` with `POST /messages/:id/reply` and `GET /messages/:id/replies`; update `app/client.html` with reply button, thread expansion, indented replies, and reply input.

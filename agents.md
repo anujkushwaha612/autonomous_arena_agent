@@ -232,7 +232,7 @@ Add support for multiple rooms.
 ---
 
 ### T8: Message Reactions
-**STATUS: TODO**
+**STATUS: DONE**
 
 Add emoji reactions to messages.
 
@@ -440,4 +440,5 @@ Add file sharing and search functionality.
 - 2026-07-25: Completed T5 User Registration System with `app/auth.js` (bcrypt-hashed accounts, atomic `app/data/users.json` persistence, `register`/`getUser`/`userExists`), `POST /register` with username (3-20 alphanumeric) and password (min 6) validation, and the `bcrypt` dependency.
 - 2026-07-25: Completed T6 User Login & JWT Tokens with `login(username, password)` (bcrypt.compare, 24h JWT), `verifyToken(token)`, and `authenticateRequest` Express middleware (Authorization: Bearer); `POST /login` returns `{ success, token, username, expiresAt }`; WebSocket upgrade requires valid `?token=` query param (401 on missing/invalid via `wss verifyClient`); JWT_SECRET from env with dev fallback; `jsonwebtoken` dependency added and installed.
 - 2026-07-25: Completed T7 Multiple Chat Rooms with `app/storage.js` (room management, dual persistence), `app/server.js` (room REST API, room-aware WebSocket broadcasting), and `app/client.html` (login/register UI, room sidebar, room switching).
+- 2026-07-25: Completed T8 Message Reactions with `app/storage.js` (`addReaction`, `removeReaction`, `findMessageById`), `app/server.js` (`POST /messages/:id/react`, `DELETE /messages/:id/react/:emoji`, WebSocket reaction handling + broadcasting), and `app/client.html` (hover reaction button, emoji picker with 👍 ❤️ 😂 🎉 👀, reaction pills with counts, toggle-tap to add/remove, own-reaction highlighting).
 

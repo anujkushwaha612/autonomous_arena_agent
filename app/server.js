@@ -137,6 +137,44 @@ app.post('/rooms/:id/leave', auth.authenticateRequest, (req, res) => {
   }
 });
 
+// Add a reaction to a message.
+app.post('/messages/:id/react', auth.authenticateRequest, (req, res) => {
+  const messageId = req.params.id;
+  const emoji = (req.body && req.body.emoji) ? String(req.body.emoji).trim() : '';
+
+  if (!emoji) {
+    return res.status(400).json({ success: false, error: 'Emoji is required.' });
+  }
+
+  const updated = storage.addReaction(messageId, req.user.username, emoji);
+  if (!updated) {
+    return res.status(404).json({ success: false, error: 'Message not found.' });
+  }
+
+  console.log(`[http] reaction: ${req.user.username} added ${emoji} to message ${messageId}`);
+  broadcastToRoom(updated.roomId, { type: 'reaction', message: updated });
+  res.json({ success: true, message: updated });
+});
+
+// Remove a reaction from a message.
+app.delete('/messages/:id/react/:emoji', auth.authenticateRequest, (req, res) => {
+  const messageId = req.params.id;
+  const emoji = decodeURIComponent(req.params.emoji).trim();
+
+  if (!emoji) {
+    return res.status(400).json({ success: false, error: 'Emoji is required.' });
+  }
+
+  const updated = storage.removeReaction(messageId, req.user.username, emoji);
+  if (!updated) {
+    return res.status(404).json({ success: false, error: 'Message not found.' });
+  }
+
+  console.log(`[http] reaction: ${req.user.username} removed ${emoji} from message ${messageId}`);
+  broadcastToRoom(updated.roomId, { type: 'reaction', message: updated });
+  res.json({ success: true, message: updated });
+});
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({
   server,
@@ -275,6 +313,31 @@ wss.on('connection', (socket, req) => {
       console.log(
         `[ws] getHistory from ${clientSummary(client)}: returned ${sent.length} message(s)`,
       );
+      return;
+    }
+
+    // Handle reaction over WebSocket for real-time feel.
+    if (payload && payload.type === 'reaction') {
+      const msgId = payload.messageId;
+      const emo = payload.emoji;
+      const action = payload.action; // 'add' or 'remove'
+      const wsUsername = authUser ? authUser.username : null;
+      if (!msgId || !emo || !wsUsername || !action) {
+        sendJson(socket, { type: 'error', error: 'Invalid reaction payload.' });
+        return;
+      }
+      let updated;
+      if (action === 'add') {
+        updated = storage.addReaction(msgId, wsUsername, emo);
+      } else if (action === 'remove') {
+        updated = storage.removeReaction(msgId, wsUsername, emo);
+      }
+      if (!updated) {
+        sendJson(socket, { type: 'error', error: 'Message not found or invalid action.' });
+        return;
+      }
+      console.log(`[ws] reaction: ${wsUsername} ${action} ${emo} on ${msgId}`);
+      broadcastToRoom(updated.roomId, { type: 'reaction', message: updated });
       return;
     }
 
