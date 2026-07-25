@@ -1,1 +1,1 @@
-T2 complete. Added shared/types.ts, shared/constants.ts, server/rooms.ts (4-letter code, create/get/destroy), server/protocol.ts (parse/validate). App starts; health endpoint works; lobby smoke test added.
+Built map data; verified with tsx.

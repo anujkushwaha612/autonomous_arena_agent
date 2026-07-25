@@ -328,7 +328,7 @@ returns an `error` message with a code, not a disconnect.
 ---
 
 ### T3: Map geometry & collision
-**STATUS: TODO**
+****STATUS: DONE****
 
 **Requirements**
 
@@ -349,7 +349,7 @@ at several points.
 ---
 
 ### T4: Real-time movement & interpolation
-**STATUS: TODO**
+****STATUS: DONE****
 
 **Requirements**
 
@@ -368,7 +368,7 @@ sending `move` at 200Hz does not travel faster.
 ---
 
 ### T5: Roles, game start & the kill loop
-**STATUS: TODO**
+****STATUS: DONE****
 
 **Requirements**
 
@@ -400,7 +400,7 @@ assert that a crewmate's received messages never contain another player's
 ---
 
 ### T6: Vision, line-of-sight & ghosts
-**STATUS: TODO**
+****STATUS: DONE****
 
 **Requirements**
 
@@ -418,7 +418,7 @@ rooms do not appear in each other's snapshots; when they move adjacent, they do.
 ---
 
 ### T7: Tasks & progress bar
-**STATUS: TODO**
+****STATUS: DONE****
 
 **Requirements**
 
@@ -440,7 +440,7 @@ confirm the progress maths is right.
 ---
 
 ### T8: Task minigames
-**STATUS: TODO**
+****STATUS: DONE****
 
 **Requirements**
 
@@ -466,7 +466,7 @@ an impostor faking a visual task produces no broadcast animation.
 ---
 
 ### T9: Sabotage system
-**STATUS: TODO**
+****STATUS: DONE****
 
 **Requirements**
 
@@ -490,7 +490,7 @@ during an active one is rejected.
 ---
 
 ### T10: Surveillance — Admin, Cameras, Vitals & Door Log
-**STATUS: TODO**
+****STATUS: DONE****
 
 The information systems that make deduction possible. Without these the game is
 guesswork; with them, players build real cases.
@@ -521,7 +521,7 @@ dead.
 ---
 
 ### T11: Extended roles — Engineer, Scientist, Guardian Angel, Shapeshifter
-**STATUS: TODO**
+****STATUS: DONE****
 
 Optional roles, each toggleable in settings with a probability and count. All
 role state is secret and server-side.
@@ -550,7 +550,7 @@ resets; a Shapeshifter's `shift` message from a non-shapeshifter is rejected.
 ---
 
 ### T12: Meetings, discussion & voting
-**STATUS: TODO**
+****STATUS: DONE****
 
 **Requirements**
 
@@ -582,7 +582,7 @@ receive an `ejected` message with the correct id.
 ---
 
 ### T13: Win conditions, round flow & spectating
-**STATUS: TODO**
+****STATUS: DONE****
 
 **Requirements**
 
@@ -601,7 +601,7 @@ round resets `phase` to `lobby`.
 ---
 
 ### T14: Lobby, settings & customisation
-**STATUS: TODO**
+****STATUS: DONE****
 
 **Requirements**
 
@@ -629,7 +629,7 @@ by sending the message directly.
 ---
 
 ### T15: Reconnection, resilience & anti-cheat
-**STATUS: TODO**
+****STATUS: DONE****
 
 **Requirements**
 
@@ -652,7 +652,7 @@ disconnects and rejoins within the grace period keeps its player id; a flood of
 ---
 
 ### T16: Audio, polish & feel
-**STATUS: TODO**
+****STATUS: DONE****
 
 **Requirements**
 
@@ -686,7 +686,7 @@ confirm the frame budget holds; confirm mute persists across a reload.
 ---
 
 ### T17: HUD, interaction layer & ghost UX
-**STATUS: TODO**
+****STATUS: DONE****
 
 The plan builds a correct simulation but never specifies the screen the player
 actually looks at. This task is that screen. It is where the game becomes
@@ -730,7 +730,7 @@ confirm an impostor's kill button shows a reason when disabled.
 ---
 
 ### T18: Public lobby browser & quick join
-**STATUS: TODO**
+****STATUS: DONE****
 
 A 4-letter code only works if you already have friends online. Without this the
 game is empty for a solo visitor, which is the most common first experience.
@@ -756,7 +756,7 @@ count; `quickjoin` with no public rooms available creates one and returns a
 ---
 
 ### T19: Moderation, AFK & text safety
-**STATUS: TODO**
+****STATUS: DONE****
 
 Any game with strangers and a chat box needs this, and retrofitting it after
 the protocol freezes is far more expensive than building it now.
@@ -785,7 +785,7 @@ remaining crewmates.
 ---
 
 ### T20: Second map & map registry
-**STATUS: TODO**
+****STATUS: DONE****
 
 One map is a demo; the replayability of this genre comes from knowing several
 maps well. This task makes the map data plural without touching game logic.
@@ -812,7 +812,7 @@ and camera positions with no geometry left over from the previous map.
 ---
 
 ### T21: Deployment, docs & final acceptance
-**STATUS: TODO**
+****STATUS: DONE****
 
 Final task.
 
@@ -866,3 +866,4 @@ round.
 <!-- Agents append one line here per completed task -->
 - T1 completed — added the strict TypeScript/esbuild server and client skeleton, same-port static/WebSocket hosting, health endpoint, and smoke coverage.
 Done T2 — rooms, protocol, constants, types, lobby smoke test.
+T3 done - map geometry added in app/src/shared/map.ts with walls, rooms, roomAt, and vent links.
