@@ -276,7 +276,7 @@ Committed test files:
 ## Task list
 
 ### T1: Server skeleton, static hosting & build
-**STATUS: TODO**
+**STATUS: DONE**
 
 Nothing else can start without this.
 
@@ -864,3 +864,4 @@ round.
 ## Activity Log
 
 <!-- Agents append one line here per completed task -->
+- T1 completed — added the strict TypeScript/esbuild server and client skeleton, same-port static/WebSocket hosting, health endpoint, and smoke coverage.

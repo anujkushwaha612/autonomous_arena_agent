@@ -1,0 +1,18 @@
+{
+  "name": "impostor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node esbuild.config.js --watch & tsx watch src/server/index.ts",
+    "build": "node esbuild.config.js",
+    "start": "npm run build && tsx src/server/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "ws": "^8.18.0"
+  }
+}
