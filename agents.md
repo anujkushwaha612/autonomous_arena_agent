@@ -104,6 +104,18 @@ app/
 └── tests/                # pipeline smoke tests (*.test.js)
 ```
 
+### Cross-platform scripts — this WILL bite you
+
+The pipeline runs on Windows. `"start": "NODE_ENV=production node ..."` fails
+there with *'NODE_ENV' is not recognized as an internal or external command*,
+and every task after yours fails with it.
+
+- **Never put `VAR=value` inline in an npm script.** Use the `cross-env`
+  dependency, or read the variable in code with a default.
+- Prefer `node` over shell built-ins in scripts. No `&&` chains that rely on a
+  POSIX shell, no `rm -rf`, no `cp`. Use `rimraf`/`cpy`, or a small Node script.
+- Use forward slashes in paths inside config; Node normalises them everywhere.
+
 ### The two commands that must always work
 
 ```bash

@@ -188,17 +188,40 @@ async function main() {
       const full = path.join(TEST_DIR, file);
       let mod;
       try {
-        delete require.cache[require.resolve(full)];
-        mod = require(full);
+        // Try CommonJS first, then fall back to ESM. A project with
+        // "type": "module" (or a .mjs test) cannot be require()d — assuming
+        // CommonJS made the runner reject perfectly good agent code.
+        try {
+          delete require.cache[require.resolve(full)];
+          mod = require(full);
+        } catch (cjsErr) {
+          if (
+            cjsErr.code === 'ERR_REQUIRE_ESM' ||
+            cjsErr.code === 'ERR_REQUIRE_ASYNC_MODULE' ||
+            /Cannot use import statement|require\(\) of ES Module/i.test(cjsErr.message)
+          ) {
+            const url = require('url').pathToFileURL(full).href + `?t=${Date.now()}`;
+            mod = await import(url);
+          } else {
+            throw cjsErr;
+          }
+        }
       } catch (e) {
-        console.log(`  ❌ ${file}: could not load — ${e.message}`);
+        console.log(`  ❌ ${file}: could not load — ${e.message.split('\n')[0]}`);
         failed++;
         continue;
       }
 
-      const fn = typeof mod === 'function' ? mod : mod && mod.run;
+      // Accept: module.exports = fn | exports.run = fn | export default fn
+      const fn =
+        typeof mod === 'function'
+          ? mod
+          : (mod && (mod.run || mod.default || (mod.default && mod.default.run))) || null;
       if (typeof fn !== 'function') {
-        console.log(`  ❌ ${file}: must export a function (module.exports = async (t) => {…})`);
+        console.log(
+          `  ❌ ${file}: must export a function — ` +
+            `\`module.exports = async (t) => {…}\` or \`export default async (t) => {…}\``
+        );
         failed++;
         continue;
       }

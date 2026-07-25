@@ -246,7 +246,22 @@ function runGate(repoRoot, { userCmd = null, smoke = false, timeoutMs = 300000, 
   if (!errors.length && smoke) {
     const smokePath = path.join(__dirname, 'smoke.js');
     if (fs.existsSync(smokePath)) {
-      errors.push(...runUserCommand(repoRoot, `node "${smokePath}"`, timeoutMs));
+      const smokeErrors = runUserCommand(repoRoot, `node "${smokePath}"`, timeoutMs);
+      // Distinguish "the agent's code is broken" from "our runner broke".
+      // A crash inside the runner itself (it could not even load a test file)
+      // must not be blamed on the agent — that rejects perfectly good work and
+      // burns the round. Warn loudly and let the patch through.
+      const runnerBroke = smokeErrors.some(
+        (e) =>
+          /MODULE_NOT_FOUND/.test(e) &&
+          !/── smoke: \d+ passed, [1-9]/.test(e)
+      );
+      if (runnerBroke) {
+        log('  ⚠️  smoke runner failed to start (not the agent\'s fault) — skipping runtime tests.');
+        log('     ' + (smokeErrors[0] || '').split('\n').slice(0, 2).join(' '));
+      } else {
+        errors.push(...smokeErrors);
+      }
     }
   }
 

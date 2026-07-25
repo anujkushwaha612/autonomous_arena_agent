@@ -49,6 +49,7 @@ const { startIngest } = require('./fastcapture/ingest-server');
 const { startTunnel, resolveAny } = require('./fastcapture/tunnel');
 const { findReceipt, applyDrop } = require('./fastcapture/claim');
 const { runGate } = require('./fastcapture/gate');
+const { buildFeedback } = require('./fastcapture/feedback');
 
 // ── shell helpers ────────────────────────────────────────────────────────────
 const sh = (cmd) =>
@@ -191,7 +192,10 @@ async function main() {
       });
       const page = context.pages()[0] || (await context.newPage());
 
+      // The browser stays OPEN past the gate so a rejection can be fed back to
+      // the SAME agent, which still has full context on what it just wrote.
       let result;
+      let roundOutcome = null; // set by the feedback loop below
       try {
         await page.goto(CONFIG.newChatUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
         await ensureLoggedIn(page);
@@ -200,11 +204,13 @@ async function main() {
         await submit(page);
         console.log('  ⏳ Waiting for agent…');
         result = await waitForResult(page, anchor);
-      } finally {
-        await context.close();
+      } catch (e) {
+        await context.close().catch(() => {});
+        throw e;
       }
 
       if (result.kind === 'failed' || result.kind === 'timeout') {
+        await context.close().catch(() => {});
         const what =
           result.kind === 'failed'
             ? `Agent reported failure: ${result.reason}`
@@ -227,6 +233,7 @@ async function main() {
         continue;
       }
       if (result.kind === 'done') {
+        await context.close().catch(() => {});
         if (countTodo() > 0) {
           console.log('  ⚠️  Agent said ALL_DONE but TODOs remain — retrying.');
           continue;
@@ -235,26 +242,130 @@ async function main() {
         break;
       }
 
-      // receipt
+      // ── apply, and on rejection teach the SAME agent how to fix it ─────────
       console.log(`  🎫 Receipt: ${result.receipt}`);
       const todoBefore = countTodo();
-      try {
-        const r = applyDrop({
-          repoRoot: CONFIG.repoRoot,
-          dropDir: CONFIG.dropDir,
-          receipt: result.receipt,
+
+      const gateFn = CONFIG.gateEnabled
+        ? (repoRoot, baseline) =>
+            runGate(repoRoot, {
+              smoke: CONFIG.smokeEnabled,
+              baseline,
+              userCmd: CONFIG.verifyCmd,
+              timeoutMs: CONFIG.verifyTimeoutMs,
+              log: (m) => console.log(m),
+            })
+        : null;
+
+      // Receipts already consumed this round. A repaired upload MUST produce a
+      // new receipt (it is a sha256 of the patch), so if we see an old one the
+      // agent re-printed instead of re-uploading.
+      const seenReceipts = new Set([result.receipt]);
+
+      let r = null;
+      let applyError = null;
+
+      for (let attempt = 0; attempt <= CONFIG.maxRepairAttempts; attempt++) {
+        try {
+          r = applyDrop({
+            repoRoot: CONFIG.repoRoot,
+            dropDir: CONFIG.dropDir,
+            receipt: result.receipt,
+            round,
+            gate: gateFn,
+          });
+          applyError = null;
+          break; // accepted
+        } catch (e) {
+          applyError = e;
+
+          const canRetry =
+            CONFIG.repairEnabled &&
+            attempt < CONFIG.maxRepairAttempts &&
+            Array.isArray(e.gateErrors) &&
+            e.gateErrors.length > 0;
+
+          if (!canRetry) break;
+
+          console.log(
+            `\n  🔁 Gate rejected — asking the same agent to fix it ` +
+              `(attempt ${attempt + 1}/${CONFIG.maxRepairAttempts})…`
+          );
+          e.gateErrors.slice(0, 5).forEach((g) => console.log(`     • ${g}`));
+          logEvent({
+            event: 'repair_requested',
+            round,
+            attempt: attempt + 1,
+            errors: e.gateErrors,
+          });
+
+          const feedbackNonce = String(Date.now());
+          const message = buildFeedback({
+            errors: e.gateErrors,
+            attempt: attempt + 1,
+            maxAttempts: CONFIG.maxRepairAttempts,
+            ingestUrl,
+            ingestToken: CONFIG.ingestToken,
+            round,
+            nonce: feedbackNonce,
+          });
+
+          let fixed;
+          try {
+            await typePrompt(page, message);
+            await submit(page);
+            console.log('  ⏳ Waiting for the fix…');
+            fixed = await waitForResult(page, `###WORKER_ANCHOR_${feedbackNonce}###`);
+          } catch (uiErr) {
+            console.log(`  ⚠️  Could not deliver feedback: ${uiErr.message}`);
+            break;
+          }
+
+          if (fixed.kind !== 'receipt') {
+            console.log(`  ⚠️  Agent did not return a new patch (${fixed.kind}). Giving up on repair.`);
+            break;
+          }
+          if (seenReceipts.has(fixed.receipt)) {
+            console.log('  ⚠️  Agent re-sent the same receipt — it did not upload a fix.');
+            break;
+          }
+
+          seenReceipts.add(fixed.receipt);
+          result = fixed;
+          console.log(`  🎫 New receipt: ${fixed.receipt}`);
+          logEvent({ event: 'repair_received', round, attempt: attempt + 1, receipt: fixed.receipt });
+        }
+      }
+
+      await context.close().catch(() => {});
+
+      // Exhausted repairs (or repair disabled) — handle the failure here.
+      // NOTE: must not `throw` from outside the try/catch below, or it escapes
+      // to the outer handler and kills the whole run instead of retrying.
+      if (applyError) {
+        consecutiveFailures++;
+        logEvent({
+          event: 'apply_failed',
           round,
-          gate: CONFIG.gateEnabled
-            ? (repoRoot, baseline) =>
-                runGate(repoRoot, {
-                  smoke: CONFIG.smokeEnabled,
-                  baseline,
-                  userCmd: CONFIG.verifyCmd,
-                  timeoutMs: CONFIG.verifyTimeoutMs,
-                  log: (m) => console.log(m),
-                })
-            : null,
+          receipt: result.receipt,
+          error: applyError.message,
+          gate: !!applyError.gateFailure,
         });
+        console.error(`\n  ❌ Could not apply drop: ${applyError.message}`);
+        if (applyError.gateFailure) {
+          console.error("     The agent's code did not pass validation; nothing was committed.");
+        }
+        if (consecutiveFailures >= CONFIG.maxConsecutiveFailures) {
+          console.error(`     ${consecutiveFailures} failures in a row — stopping for review.`);
+          break;
+        }
+        console.error(
+          `     Retrying (${consecutiveFailures}/${CONFIG.maxConsecutiveFailures} consecutive failures).`
+        );
+        continue;
+      }
+
+      try {
         if (r.mode === 'skipped') {
           console.log(`  ↪️  Already applied (${r.note}).`);
         } else {
@@ -522,11 +633,25 @@ async function findComposer(page) {
   return n === 0 ? null : visible.last();
 }
 
-async function ensureLoggedIn(page) {
+async function ensureLoggedIn(page, timeoutMs = 10 * 60 * 1000) {
   if ((await findComposer(page)) !== null) return;
   console.log('\n  👉 Please LOG IN to Arena in the browser window. Waiting…');
+  const deadline = Date.now() + timeoutMs;
   while ((await findComposer(page)) === null) {
-    await page.waitForTimeout(2000);
+    // If the user closed the window, page.waitForTimeout throws a confusing
+    // "Target page, context or browser has been closed". Detect it and fail
+    // with something actionable instead.
+    if (page.isClosed && page.isClosed()) {
+      throw new Error('browser window was closed while waiting for login');
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`no login detected after ${Math.round(timeoutMs / 60000)} minutes`);
+    }
+    try {
+      await page.waitForTimeout(2000);
+    } catch {
+      throw new Error('browser window was closed while waiting for login');
+    }
   }
   console.log('  ✅ Logged in.');
 }
