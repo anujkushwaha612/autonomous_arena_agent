@@ -111,8 +111,38 @@ async function ensureCloudflared(log = console.log) {
   return dest;
 }
 
+/**
+ * Block until `host` resolves on a public resolver.
+ * We query 1.1.1.1/8.8.8.8 directly rather than the OS resolver so a cached
+ * NXDOMAIN from an earlier attempt can't keep us stuck.
+ */
+async function waitForDns(host, log = console.log, timeoutMs = 90000) {
+  const { Resolver } = require('dns').promises;
+  const started = Date.now();
+  let announced = false;
+  while (Date.now() - started < timeoutMs) {
+    for (const servers of [['1.1.1.1', '1.0.0.1'], ['8.8.8.8', '8.8.4.4']]) {
+      try {
+        const r = new Resolver();
+        r.setServers(servers);
+        const a = await r.resolve4(host);
+        if (a && a.length) {
+          log(`  ✅ DNS live after ${Math.round((Date.now() - started) / 1000)}s`);
+          return a[0];
+        }
+      } catch {}
+    }
+    if (!announced && Date.now() - started > 4000) {
+      announced = true;
+      log('  ⏳ waiting for tunnel DNS to propagate…');
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  throw new Error(`tunnel hostname ${host} never resolved (waited ${timeoutMs / 1000}s)`);
+}
+
 /** Start a quick tunnel (no Cloudflare account needed) and resolve its URL. */
-async function startTunnel(port, { timeoutMs = 60000, log = console.log } = {}) {
+async function startTunnel(port, { timeoutMs = 150000, log = console.log } = {}) {
   const bin = await ensureCloudflared(log);
 
   return new Promise((resolve, reject) => {
@@ -124,6 +154,7 @@ async function startTunnel(port, { timeoutMs = 60000, log = console.log } = {}) 
     });
 
     let settled = false;
+    let resolving = false;
     let buf = '';
     const done = (fn, arg) => {
       if (settled) return;
@@ -140,7 +171,15 @@ async function startTunnel(port, { timeoutMs = 60000, log = console.log } = {}) 
     const scan = (chunk) => {
       buf += chunk.toString();
       const m = buf.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
-      if (m) done(resolve, { url: m[0], proc });
+      // cloudflared prints the URL before DNS exists. Don't hand it back until
+      // the hostname actually resolves publicly, otherwise the very first
+      // lookup NXDOMAINs and gets negative-cached for minutes.
+      if (m && !resolving) {
+        resolving = true;
+        waitForDns(new URL(m[0]).hostname, log)
+          .then(() => done(resolve, { url: m[0], proc }))
+          .catch((e) => { proc.kill(); done(reject, e); });
+      }
     };
 
     proc.stdout.on('data', scan);

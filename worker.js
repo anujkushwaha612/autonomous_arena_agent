@@ -89,13 +89,15 @@ async function main() {
   // 2b. Prove the URL works from the OUTSIDE before spending a whole round on
   // it. Without this, a broken tunnel only surfaces as "upload endpoint is
   // unreachable" two minutes later, with no clue why.
-  console.log('\n▸ Self-testing the public URL…');
-  const reachable = await selfTest(ingestUrl);
+  console.log('\n▸ Self-testing the public URL (new tunnels need ~15s to propagate)…');
+  const reachable = await selfTest(ingestUrl, {
+    onProgress: (m) => console.log(`     …${m}`),
+  });
   if (!reachable.ok) {
     console.error(`
   ❌ Your ingest URL is NOT reachable from the internet.
      URL:   ${ingestUrl}
-     Error: ${reachable.error}
+     Error: ${reachable.error}  (gave up after ${Math.round((reachable.ms || 0) / 1000)}s)
 
      The agent would fail with "upload endpoint unreachable", so stopping now.
 
@@ -204,37 +206,91 @@ async function main() {
  * Hit /health over the public URL, the same way the agent will.
  * Retries briefly: a fresh quick tunnel can take a few seconds to propagate.
  */
-function selfTest(baseUrl, attempts = 6) {
+/**
+ * Hit /health over the public URL, exactly as the agent will.
+ *
+ * A brand-new trycloudflare hostname is NOT immediately usable: DNS needs
+ * ~5-10s to propagate and the edge another few seconds to route. Measured on a
+ * real tunnel: DNS resolved at +8.7s, first HTTP 200 at +15.2s. So we poll
+ * against a generous deadline instead of failing on the first ENOTFOUND.
+ */
+function selfTest(baseUrl, { timeoutMs = 120000, onProgress = () => {} } = {}) {
   const mod = baseUrl.startsWith('https') ? require('https') : require('http');
+  const dns = require('dns');
+  const { Resolver } = dns.promises;
   const started = Date.now();
+  const host = new URL(baseUrl).hostname;
 
-  const once = () =>
-    new Promise((resolve) => {
-      const req = mod.get(
-        `${baseUrl.replace(/\/$/, '')}/health`,
-        { headers: { 'User-Agent': 'agentchain-selftest' }, timeout: 12000 },
-        (res) => {
-          const chunks = [];
-          res.on('data', (c) => chunks.push(c));
-          res.on('end', () => {
-            const body = Buffer.concat(chunks).toString();
-            if (res.statusCode === 200 && body.includes('"ok"')) resolve({ ok: true });
-            else resolve({ ok: false, error: `HTTP ${res.statusCode}: ${body.slice(0, 120)}` });
-          });
+  /**
+   * Resolve via public DNS, bypassing the OS resolver.
+   *
+   * Why: cloudflared prints the tunnel URL *before* the hostname exists in DNS.
+   * Our first lookup therefore gets NXDOMAIN, and the OS (and some upstream
+   * resolvers) cache that negative answer for minutes. The name then appears
+   * publicly but our machine keeps saying ENOTFOUND long after the tunnel is
+   * live. Observed exactly this: 1.1.1.1 answered while the system resolver
+   * and 8.8.8.8 still returned ENOTFOUND.
+   *
+   * So we ask authoritative-ish public resolvers directly and connect by IP.
+   */
+  async function resolvePublic() {
+    for (const servers of [['1.1.1.1', '1.0.0.1'], ['8.8.8.8', '8.8.4.4'], null]) {
+      try {
+        if (servers) {
+          const r = new Resolver();
+          r.setServers(servers);
+          const a = await r.resolve4(host);
+          if (a && a.length) return a[0];
+        } else {
+          const a = await dns.promises.lookup(host);
+          if (a && a.address) return a.address;
         }
-      );
+      } catch {}
+    }
+    return null;
+  }
+
+  const probe = (ip) =>
+    new Promise((resolve) => {
+      const opts = {
+        host: ip || host,
+        servername: host, // correct SNI when connecting by IP
+        headers: { Host: host, 'User-Agent': 'agentchain-selftest' },
+        path: '/health',
+        port: baseUrl.startsWith('https') ? 443 : 80,
+        timeout: 10000,
+      };
+      const req = mod.get(opts, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const body = Buffer.concat(chunks).toString();
+          if (res.statusCode === 200 && body.includes('"ok"')) resolve({ ok: true });
+          else resolve({ ok: false, error: `HTTP ${res.statusCode}: ${body.slice(0, 100)}` });
+        });
+      });
       req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'timed out' }); });
       req.on('error', (e) => resolve({ ok: false, error: e.code || e.message }));
     });
 
   return (async () => {
     let last = { ok: false, error: 'no attempt made' };
-    for (let i = 0; i < attempts; i++) {
-      last = await once();
-      if (last.ok) return { ok: true, ms: Date.now() - started };
-      await new Promise((r) => setTimeout(r, 2500));
+    let n = 0;
+    while (Date.now() - started < timeoutMs) {
+      const ip = await resolvePublic();
+      if (ip) {
+        last = await probe(ip);
+        if (last.ok) return { ok: true, ms: Date.now() - started, ip };
+      } else {
+        last = { ok: false, error: 'ENOTFOUND (DNS still propagating)' };
+      }
+      n++;
+      if (n === 3 || n % 8 === 0) {
+        onProgress(`${last.error} — retrying (${Math.round((Date.now() - started) / 1000)}s)`);
+      }
+      await new Promise((r) => setTimeout(r, 2000));
     }
-    return last;
+    return { ...last, ms: Date.now() - started };
   })();
 }
 
