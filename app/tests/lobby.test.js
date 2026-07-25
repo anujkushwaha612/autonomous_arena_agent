@@ -1,1 +1,0 @@
-// basic smoke: server responds

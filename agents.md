@@ -10,6 +10,54 @@ The **task brain**. Each agent completes exactly **one** task, then hands off.
 
 ---
 
+## ⚠️⚠️⚠️ GLOBAL QUALITY MANDATE - READ THIS FIRST - NON-NEGOTIABLE ⚠️⚠️⚠️
+
+### YOU ARE NOT BUILDING A PROTOTYPE. YOU ARE CLONING THE REAL AMONG US.
+
+Every previous agent has shipped **embarrassingly basic code** that would never pass as Among Us. This stops now.
+
+**IF YOU ARE ABOUT TO SHIP BASIC CODE, STOP AND REWRITE IT.**
+
+Real Among Us is a polished, AAA-feel party game played by 500M+ players. Your clone must FEEL like it. If a player shows your screen recording next to real Among Us, they should not instantly tell it's fake from visuals, animation, or interaction.
+
+#### BANNED - BASIC CODE THAT WILL FAIL YOUR ROUND:
+
+❌ Player drawn as `fillRect(color)` circle or square
+❌ Map as 8 rectangles with text labels
+❌ Movement that just does `x += dx` with no collision sliding, no animation, no footstep cycle
+❌ Kill that just sets `alive=false` with no animation, no body sprite, no blood, no cooldown UI
+❌ Tasks as "Press E to complete" or a single button that instantly completes
+❌ Minigames as `alert('done')` or one `input` field
+❌ Meeting screen as `<ul><li>player names</li></ul>` and a vote button
+❌ Chat as a bare `<input>` with no bubbles, no colors, no filtering
+❌ Lobby as white page with 4-letter code text
+❌ No shadows, no depth, no lighting, no juice, no polish
+❌ Single 300-line file doing everything
+❌ `// TODO: add animation later` or placeholder comments
+❌ Magic numbers scattered everywhere
+❌ Any feature that works but looks like a 2-hour hackathon demo
+
+#### REQUIRED - ADVANCED CODE LIKE REAL AMONG US:
+
+✅ **Player Character:** Exact Among Us bean shape - rounded capsule body, backpack (separate shape with highlight), visor with sky-blue reflection gradient and white shine, shadow underneath as soft ellipse, color patterns for color-blind accessibility (stripes/dots on body), 2 legs with squash-stretch walk cycle (4-frame animation, leaning into direction), death splits body into two halves with bone visible, ghost has transparent body + floating animation. Hats procedurally drawn on top with proper attachment. Pets with trailing.
+✅ **Map Rendering:** Not lines. Draw walls as thick rounded shapes with top highlight + side shadow for 2.5D. Each room has distinct floor color/texture, props - Cafeteria tables with 8 chairs, wires in Electrical with color, MedBay scanner bed, Admin table with card slots, Nav with chairs. Corridors narrow. Background starfield with parallax.
+✅ **Animation & Juice:** EVERY state change has animation — vent open/close (3-frame scale), kill stab with red swipe effect, report with large yellow button pulse, emergency meeting with alarm wipe, ejection with lava/space throw, task complete chime with particle burst, progress bar with lerp not jump, camera follow with 0.15 lerp + screen shake on kill/sabotage.
+✅ **Minigames Pixel-Perfect:** Each minigame must replicate real Among Us minigame 1:1 — Wiring: colored wires as cubic bezier curves that snap with spark particles when correct; Card Swipe: card with magnetic stripe, you drag at exact speed (too fast/slow fails with shake); Shields: hexagons that light up red on click; etc. With sound, drag physics, error shake, success animation.
+✅ **UI is Among Us UI:** Use VT323 / rounded sans font stack, black stroke outline on white text, scalloped buttons with border and shadow, meeting table top-down view with players seated, vote cards stack animation, chat bubbles, not plain divs.
+✅ **Code Architecture:** Split logical modules, strict TypeScript types for everything, no `any`, pure functions where possible, small functions (<50 lines), constants file used everywhere, validated protocol, per-player vision filtering actually tested.
+✅ **Performance:** 60fps with 12 players, no per-frame allocations, draw only visible, requestAnimationFrame, delta-time independent.
+
+**SELF-CHECKS BEFORE YOU HAND OFF:**
+1. Would Innersloth put this in their trailer? If no -> redo.
+2. Show to a 12-year-old who plays Among Us - would they say "this looks like Among Us"? If no -> redo.
+3. Are there ANY rectangles where there should be sprites? Redo.
+4. Did you add sounds? Particles? Shadows? Lighting? If no -> add them.
+5. Is your code <100 lines for a major system? You are faking it. Real systems need proper handling of edge cases, animation states, validation, etc.
+
+**If you ship basic code, you have failed the round, even if tests pass. Tests do NOT check visual quality - YOU must enforce it.**
+
+---
+
 ## Repository layout — READ THIS BEFORE TOUCHING ANYTHING
 
 This repository is **not** the product. It is an autonomous build pipeline that
@@ -70,6 +118,18 @@ Playable by sharing a 4-letter room code. No install, no account, no download.
 - **Impostors win** when impostors ≥ living crewmates, or a critical sabotage
   timer expires.
 
+### Feel Reference — What REAL Among Us Feels Like:
+
+- Crewmate walk: bouncy, 2 legs alternating, slight body wobble, backpack lags a bit
+- Kill: impostor tongue/stab extends, screen briefly darkens, body falls with crack
+- Vent: player shrinks into vent with scale + rotation jiggle, vent lid flips open/closed with spring
+- Meeting: dramatic klaxon, speed-lines wipe, all players teleported to table with slide animation, ghost floats
+- Tasks: tactile, you GRAB wires, you FUEL with hold, you SWIPE card and it shakes if too fast
+- Emergency button: big red button with glow, it has 3D bevel
+- Maps: The Skeld, Mira HQ, Polus — cluttered with objects, cables on floor, not empty rooms
+
+**If your build doesn't have this level of juice, it's basic. Start over.**
+
 ---
 
 ## Stack — chosen so it cannot break
@@ -89,14 +149,7 @@ Adding a fifth requires a very good reason written into `NEXT.md`. No React, no
 Phaser, no Colyseus, no Socket.IO — every dependency is an install that can fail
 on another machine and break every later task.
 
-### Why not Fable/F#
-
-Your friends are using Fable. We are deliberately taking the boring path: the
-pipeline's agents write far more reliable TypeScript than F#, the toolchain is
-`npm install` rather than a .NET SDK, and iteration is seconds not minutes. We
-win on **shipped features**, not on language novelty.
-
-### Project shape
+### Project shape — ADVANCED STRUCTURE EXPECTED
 
 ```
 app/
@@ -124,15 +177,17 @@ app/
     ├── client/
     │   ├── main.ts       # bootstrap & scene switching
     │   ├── net.ts        # socket, reconnect, interpolation, clock offset
-    │   ├── render.ts     # canvas draw loop
+    │   ├── render.ts     # canvas draw loop - MUST BE ADVANCED (see T16)
     │   ├── input.ts      # keyboard/touch
     │   ├── ui/           # lobby, hud, map overlay, meeting, minigames
-    │   └── assets.ts     # procedural sprites (no binary assets)
+    │   └── assets.ts     # procedural sprites (no binary assets) - DRAW REAL CHARACTERS
     └── shared/
         ├── types.ts      # message & entity types used BY BOTH sides
         ├── constants.ts  # speeds, radii, timers — one source of truth
         └── map.ts        # map geometry (T3) → becomes shared/maps/ in T20
 ```
+
+**assets.ts ADVANCED REQUIREMENT:** This file must contain functions that procedurally draw REAL Among Us characters on Canvas 2D - not circles. `drawPlayer(ctx, color, hat, skin, visor, isGhost, walkFrame, facing)` must draw bean body with stroke outline, backpack, visor reflection gradient, shadow ellipse, legs animation with 4 frames. `drawHat`, `drawBody`, `drawVisor`, `drawPet`. Use bezier curves, gradients, not rect.
 
 ### The two commands that must always work
 
@@ -147,7 +202,7 @@ one port. Two ports, or a separate build step, breaks every later task.
 
 ---
 
-## Non-negotiable engineering rules
+## Non-negotiable engineering rules — ADVANCED EDITION
 
 1. **The server is authoritative.** The client sends *intent* (`move`, `use`,
    `kill`, `vote`) and renders what the server confirms. Never trust a
@@ -158,7 +213,7 @@ one port. Two ports, or a separate build step, breaks every later task.
    This is the single easiest way to ruin the game — treat it as a security
    boundary.
 3. **All tuning constants live in `shared/constants.ts`.** No magic numbers in
-   game logic. Speeds, cooldowns, radii, timer lengths — one place.
+   game logic. Speeds, cooldowns, radii, timer lengths — one place. If you find yourself typing `100` or `0.5` in game logic, you are doing basic code.
 4. **Every message is validated** against `shared/types.ts` before it reaches
    game logic. An unknown or malformed message is dropped with a logged warning,
    never a crash.
@@ -175,6 +230,11 @@ one port. Two ports, or a separate build step, breaks every later task.
    and its timers are destroyed. No leaks, no zombie intervals.
 10. **Accessibility & feel:** keyboard *and* touch controls, colour-blind-safe
     player colours with distinct patterns, and no flashing faster than 3Hz.
+11. **[NEW] NO BASIC CODE EVER.** Every visual element must have shadow, highlight, animation, and polish. If real Among Us has it, you replicate it. A plain colored rectangle is never acceptable as a final sprite. Use gradients, strokes (4px black outline like Among Us), bezier curves, and layered drawing.
+12. **[NEW] CODE QUALITY = REAL CODEBASE QUALITY.** No 500-line functions. No copy-paste. Proper TypeScript strict types, discriminated unions for messages, no `any`. Each file max ~400 lines, split logically. Comments only where needed to explain non-obvious logic, not to apologize for hacks.
+13. **[NEW] EVERY FEATURE IS FULLY ANIMATED AND AUDIO-VISUAL.** If you add kill, add kill sound + kill animation + body falling + report glow + cooldown dial UI with sweep. If you add vent, add vent lid flip + particle poof + sfx + visibility logic. Nothing pops instantly. Everything tweens.
+14. **[NEW] MINIGAMES ARE REAL GAMES, NOT BUTTONS.** Each minigame must be at least 150+ lines of interactive logic, have draggable elements, success/failure states, error feedback (shake), success particle burst, and be winnable only through actual interaction - not a button that says "Complete".
+15. **[NEW] MAPS ARE SKELD-QUALITY, NOT GRID.** Real Among Us maps have irregulated walls, rounded corners, props, wires, panels, and feel like a spaceship. Your map must have 8+ rooms each with unique props drawn procedurally, corridor width varying, vent positions hidden inside floor details.
 
 ---
 
@@ -273,10 +333,10 @@ Committed test files:
 
 ---
 
-## Task list
+## Task list — WITH ADVANCED BARS
 
 ### T1: Server skeleton, static hosting & build
-**STATUS: DONE**
+**STATUS: TODO**
 
 Nothing else can start without this.
 
@@ -291,10 +351,11 @@ Nothing else can start without this.
   against `../` traversal), attaches a `ws` server on the same port, and
   listens on `PORT || 3000`.
 - `GET /api/health` → `200 {"status":"ok","rooms":0,"uptime":n}`.
-- `app/public/index.html` + `style.css` — dark theme, a canvas element, and a
-  centred lobby panel.
-- `app/src/client/main.ts` — connects the socket, logs `open`.
+- `app/public/index.html` + `style.css` — **ADVANCED: Not basic dark theme. Real Among Us styled landing page** - dark space background with parallax stars (canvas or CSS), Among Us logo stylized (big rounded white text with black stroke), crewmate silhouette decorations, loading spinner that's a spinning crewmate. Lobby panel with rounded corners, black border, inner shadow, like Among Us UI. CSS must include VT323 font import, proper animations.
+- `app/src/client/main.ts` — connects socket, logs `open`, handles reconnect with UI.
 - `app/.gitignore`: `node_modules/`, `public/bundle.js*`, `.env`.
+
+**ADVANCED BAR FOR T1:** Even this skeleton must FEEL like Among Us from first load. Index.html must not be bare `<canvas>`. It should have a styled loading screen, starfield background, proper viewport meta, and look like a game menu, not a dev test page. Build must produce sourcemaps.
 
 **COMMIT this test** — `app/tests/health.test.js`: health returns 200 with
 `status === 'ok'`; `GET /` returns HTML; `GET /../package.json` does not return
@@ -303,567 +364,447 @@ source.
 ---
 
 ### T2: Rooms, join/create & lobby state
-**STATUS: DONE**
+**STATUS: TODO**
 
 **Requirements**
 
-- `shared/types.ts` and `shared/constants.ts` seeded with the protocol above
-  and initial tuning values.
+- `shared/types.ts` and `shared/constants.ts` seeded with protocol above
+  and initial tuning values. Constants must have REAL Among Us values: CREW_SPEED=2.0, IMPOSTOR_SPEED=2.2, KILL_RADIUS=1.5, VISION etc.
 - `server/rooms.ts`: `createRoom(hostName)` → unambiguous 4-letter code
   (no `I`,`O`,`0`,`1`), `joinRoom(code,name)`, `leaveRoom`, `getRoom`,
-  `listPlayers`, `destroyRoom`. Max 12 players; duplicate names get a numeric
-  suffix.
-- `server/protocol.ts`: `parse(raw)` → a validated `ClientMsg` or `null`.
+  `listPlayers`, `destroyRoom`. Max 12 players; duplicate names get numeric
+  suffix. **Advanced: Room codes use weighted letter distribution to avoid profanity, include room TTL, cleaning interval.**
+- `server/protocol.ts`: `parse(raw)` → validated `ClientMsg` or `null`.
   Reject unknown `t`, wrong field types, oversized payloads (>4 KB), and
-  names outside 1–16 printable characters.
-- On any membership change, broadcast `joined`/`snapshot` to the room.
-- Host is the first player; if the host leaves, the longest-present player is
-  promoted.
+  names outside 1–16 printable. **Must validate every nested field, not just t.**
+- On membership change, broadcast `joined`/`snapshot` to room with proper filtering.
+- Host is first player; if host leaves, longest-present promoted with notification.
 - Rooms self-destroy when empty.
 
-**COMMIT this test** — `app/tests/lobby.test.js`: two WebSocket clients join
-the same code and both observe a player count of 2; joining a nonexistent code
-returns an `error` message with a code, not a disconnect.
+**ADVANCED BAR FOR T2:** Lobby UI must be Among Us lobby - players displayed as bean characters walking around? At minimum list with color swatches, hat icons, ready indicators with real Among Us styling. Room code large with copy button that has bounce animation. Join/Create flow with animations, error shake for bad code. Not a bare form.
+
+**COMMIT this test** — `app/tests/lobby.test.js`: two WS clients join same code and both observe player count 2; joining nonexistent code returns `error` not disconnect.
 
 ---
 
 ### T3: Map geometry & collision
-****STATUS: DONE****
+**STATUS: TODO**
+
+This is where basic agents fail hardest. A few rectangles = FAIL.
 
 **Requirements**
 
-- `shared/map.ts`: a hand-authored map as data — walls as line segments, ~8
-  named rooms (Cafeteria, Reactor, Electrical, MedBay, Navigation, Storage,
-  Shields, Admin), corridors connecting them, 4 vent nodes with links, and
-  named task locations.
-- `server/movement.ts`: `step(player, dx, dy, dt)` with circle-vs-segment
-  collision and wall sliding. Speed comes from `constants.ts`.
-- `roomAt(x,y)` → the named room containing a point.
-- Client renders walls and rooms from the same `shared/map.ts` — the map is
-  defined **once**.
+- `shared/map.ts`: hand-authored map as DATA, but **must be detailed like Skeld**. ADVANCED SPEC:
+  - Walls as line segments (~150+ segments, not 20), with rounded corners logic
+  - 8 named rooms: Cafeteria (large central with 2 tables x 8 chairs each, dotted floor), Reactor (manifolds with reactor symbol), Electrical (L-shaped with 8 wire panels along walls), MedBay (2 beds + scanner, clean white floor), Navigation (pilot chairs, curved windows), Storage (fuel canisters stacked), Shields (hexagon floor texture), Admin (large table with 12 card readers), Security (4 monitors), Upper Engine, Lower Engine, Weapons (asteroid clearing seat)
+  - Corridors: varying width, not uniform; 90-degree turns with chamfer
+  - 14+ vent nodes forming network similar to Skeld (not 4), with links => Cafeteria→Admin→Corridor, etc.
+  - Named task locations (20+ locations): `cafeteria_wires`, `electrical_divert`, `medbay_scan`, `nav_chart`, `shields_prime`, `storage_fuel`, `weapons_asteroids`, etc. Each task location has x,y + interactRadius + kind supported
+  - Spawn points spread across Cafeteria
+  - Emergency button at Cafeteria center table
+  - Camera points at 6 locations
+  - Sabotage fix points: Reactor has 2 handprints, Oxygen has 2 keypad panels in Admin and O2, Lights in Electrical panel, Comms in Comms room
+- `server/movement.ts`: `step(player, dx, dy, dt)` with **circle-vs-segment collision AND wall sliding** (not stopping dead). Must handle sliding along wall by decomposing velocity into normal/tangent. Speed from constants. Use continuous collision to prevent tunneling. Handle ghost no-clip.
+- `roomAt(x,y)` → named room containing point, via point-in-polygon or nearest room bounds, handled accurately even near walls.
+- Client renders walls and rooms from SAME `shared/map.ts` — map defined once. **Render must draw walls as 2.5D with height**: thick wall top + vertical face in darker shade + shadow casting. Floor textures per room (dots/lines). Props procedurally drawn.
 
-**Verify (do not commit a test file)** — prove a player cannot cross a wall,
-slides along it rather than sticking, and that `roomAt` returns the right name
-at several points.
+**ADVANCED BAR:** If you render map as `ctx.strokeRect`, you failed. You must draw each wall as polygon with stroke outline + fill + top highlight. Rooms must have props drawn (tables as rounded rects with legs, chairs). Provide top-down feel like real Skeld minimap but fullsize. Collision must feel smooth — player should not get stuck on wall corners.
+
+**Verify (do not commit test)** — prove player cannot cross wall, slides rather than sticks, `roomAt` returns right name. Test with diagonal movement into corner.
 
 ---
 
 ### T4: Real-time movement & interpolation
-****STATUS: DONE****
+**STATUS: TODO**
 
 **Requirements**
 
-- Fixed 20Hz server tick broadcasting `snapshot` with each player's position.
-- Client sends `move` intent at most 20/sec; the server clamps to a unit vector
-  and applies its own speed — a client cannot move faster by spamming.
-- `client/net.ts` buffers the last two snapshots and interpolates render
-  positions; `client/render.ts` draws at `requestAnimationFrame`.
-- Smooth camera follow with the map clamped to viewport edges.
-- Keyboard (WASD/arrows) and an on-screen touch joystick.
+- Fixed 20Hz server tick broadcasting `snapshot` per-vision-filtered with each player's position + velocity + facing + walkAnimFrame.
+- Client sends `move` intent at most 20/sec; server clamps to unit vector and applies own speed — client cannot move faster by spamming. **Server must validate vector length <=1 + epsilon and normalize.**
+- `client/net.ts` buffers last two snapshots and interpolates render positions with **lerp + extrapolation with clamping**; includes clock offset measurement; handles packet loss with smoothing.
+- `client/render.ts` draws at `requestAnimationFrame` with deltaTime, **y-sorted draw order** (lower y draws front), camera lerp follow (0.12), deadzone, map clamped to viewport.
+- Smooth camera follow with starfield parallax (background moves at 0.3x).
+- Keyboard (WASD/arrows) **with diagonal normalization** and on-screen touch joystick **with dynamic origin (appears where finger touches left side), deadzone 20px, and visual stick + base that scales with pressure**.
 
-**Verify (do not commit a test file)** — with two browser tabs (or two socket
-clients), confirm both see each other move within ~100ms and that a client
-sending `move` at 200Hz does not travel faster.
+**ADVANCED BAR:** Movement must feel like Among Us - acceleration/deceleration curves (ease from 0 to max speed in 80ms), squash-stretch on walk (body scales x/y slightly), legs animation at 8fps while moving, lean into direction by 8 degrees, stopping has skid frame. Camera must have screen shake support. Joystick must be large, thumb-friendly, with active zone visualized. No teleporty movement; interpolation must hide tick jitter.
+
+**Verify (do not commit)** — with two tabs, both see each other move within ~100ms and client spamming move at 200Hz does not travel faster. Also verify y-sorting makes front player occlude.
 
 ---
 
 ### T5: Roles, game start & the kill loop
-****STATUS: DONE****
+**STATUS: TODO**
 
 **Requirements**
 
-- Host starts the game with ≥4 players. Impostor count from settings
-  (1 for 4–6, 2 for 7–9, 3 for 10–12), assigned by cryptographic shuffle.
-- `SelfView.role` is sent **only** to that player. Verify by inspecting the raw
-  frames a crewmate receives — the impostor list must not appear anywhere.
-- Impostor `kill` requires: target alive, within `KILL_RADIUS`, cooldown
-  elapsed, not in a meeting. Produces a body at the victim's position.
-- Killed players become ghosts: they see everything, can move through walls,
-  and can still complete tasks but cannot vote or chat with the living.
-- `report` on a nearby body triggers a meeting.
-- Per-map spawn points and a start countdown. A **role reveal splash** ("You
-  are a Crewmate / Impostor", fellow impostors named) plays before movement
-  unlocks, driven entirely by `SelfView` — the reveal must not be assembled
-  from data other players also received.
-- The kill cooldown starts after the reveal, and resets after every meeting.
-- **Venting (impostor only):** `vent` enters the nearest vent node when within
-  `VENT_RADIUS`, moves between *linked* nodes only, and exits only at a node.
-  While vented the player is invisible to everyone (absent from their
-  snapshots, not merely undrawn), cannot kill, and cannot be killed. Entering
-  and exiting play an animation and are visible to anyone who can see that
-  vent — being spotted venting is the core tell of the game.
+- Host starts game with ≥4 players. Impostor count from settings (1 for 4–6, 2 for 7–9, 3 for 10–12), assigned by **cryptographic shuffle (crypto.getRandomValues) not Math.random**.
+- `SelfView.role` sent ONLY to that player. Verify raw frames crewmate never sees impostor list. **Must not leak via roomView or task list.**
+- Impostor `kill` requires: target alive, within `KILL_RADIUS`, cooldown elapsed, not in meeting, has line-of-sight (not through wall - check vision), not shielded (T11), not same team. Produces body: positioned at victim pos with angle of killer, color preserved, has half-body sprite, report highlight pulse.
+- Killed players become ghosts: see everything, move through walls (no collision), still complete tasks, cannot vote/chat with living but ghost chat works, **transparent sprite with float y = sin(time) bob**.
+- `report` on nearby body triggers meeting; body has large glow ring when reportable.
+- Per-map spawn points and **3-2-1 start countdown with Among Us style**: big number with scale pop animation, sound beep, camera zoom.
+- **Role reveal splash:** Full-screen modal like real Among Us: "You are a Crewmate/Impostor" with color of role (blue/red), your character large in center, for impostor also shows fellow impostors with names + color small cards. Types text char-by-char, plays dramatic sound. Driven entirely by SelfView. Button to close that enables movement. Must not be assembled from data others received.
+- Kill cooldown starts after reveal, resets after every meeting, visible as cooldown dial on kill button.
+- **Venting (impostor only):** `vent` enters nearest vent node when within `VENT_RADIUS`, anim sequence: vent lid flips open (scaleY animation), player shrinks into hole with poof particle (10 white dots outward), disappears. Moves between **linked** nodes only via vent UI (grid of vent spots like Among Us - show map of vents), exits only at node with lid flip + grow. While vented player is **invisible to everyone (absent from snapshots, not merely undrawn)**, cannot kill, cannot be killed. Entering/exiting play animation visible to anyone with LOS at that vent — core tell. **Engineer later reuses this but this task must make base venting polished.**
 
-**COMMIT this test** — `app/tests/roles.test.js`: start a 4-player game and
-assert that a crewmate's received messages never contain another player's
-`role` field, and that a kill outside `KILL_RADIUS` is rejected.
+**ADVANCED BAR:** Kill must have dramatic feedback - red vignette flash, screen shake 4px, kill sound (WebAudio sawtooth stab), body falling animation (rotation + blood splatter particles). Role reveal must look like real Among Us with dark background, spotlit character. Vent must be satisfying - not instant disappear but animated sequence with particles + sound. Ghosts must have distinct visual - desaturated + transparent + blur trail.
+
+**COMMIT this test** — `app/tests/roles.test.js`: start 4-player game assert crewmate's received messages never contain another player's `role`, and kill outside KILL_RADIUS is rejected.
 
 ---
 
 ### T6: Vision, line-of-sight & ghosts
-****STATUS: DONE****
+**STATUS: TODO**
 
 **Requirements**
 
-- `server/vision.ts`: `visibleTo(player, room)` → the filtered `PlayerView[]`
-  using a radius from `constants.ts` (impostors see further) plus wall
-  occlusion — you cannot see through a wall.
-- Snapshots are built **per recipient**. A player outside your vision is simply
-  absent from your snapshot, not merely undrawn.
-- Client renders a soft vision cone/circle mask over the map.
-- Ghosts see the full map and other ghosts; the living never see ghosts.
+- `server/vision.ts`: `visibleTo(player, room)` → filtered `PlayerView[]` using radius from constants (impostors see 1.5x further) **plus wall occlusion via raycasting** — you cannot see through wall. Implement: for each candidate, cast ray from viewer to target, check intersection with wall segments (Bresenham or line-intersection). If blocked, not visible. Also check distance^2 vs radius^2. Ghosts see all. Dead bodies visible within radius regardless of occlusion? No, must respect walls.
+- Snapshots built **per recipient**. Player outside vision absent from snapshot, not merely undrawn.
+- Client renders **soft vision cone/circle mask** - not hard circle. Real Among Us has fog: draw black overlay with radial gradient cut-out (inner radius clear, outer 20% feather). Also add **light pools** under ceiling lamps (warm yellow radial). During lights sabotage, radius reduced to 40%, impostor keeps larger radius. Use canvas composite `destination-out` for mask.
+- Ghosts see full map and other ghosts; living never see ghosts. Ghosts have X-ray vision: no fog.
 
-**COMMIT this test** — `app/tests/vision.test.js`: two players in different
-rooms do not appear in each other's snapshots; when they move adjacent, they do.
+**ADVANCED BAR:** Vision must not be just distance check. You must implement wall raycasting - player around corner cannot see. Feasible: precompute spatial grid. On client, vision mask must be smooth with gradient, not jagged. Add vignette. Show how vision changes when lights sabotaged - sudden dark with emergency flashlight. Impostor vision slightly reddish edge.
+
+**COMMIT this test** — `app/tests/vision.test.js`: two players different rooms not in each other's snapshots; when adjacent they do. Also test wall blocks even if close.
 
 ---
 
 ### T7: Tasks & progress bar
-****STATUS: DONE****
+**STATUS: TODO**
 
 **Requirements**
 
-- `server/tasks.ts`: assign each crewmate N tasks (from settings) across
-  distinct map locations. Task kinds: `short`, `long` (two steps), `common`
-  (identical for everyone).
-- `taskStep` validates proximity to the task location and correct step order.
-- A player's tasks are drawn from distinct locations where the map allows it;
-  the number of `common` tasks is its own setting, separate from short/long.
-- Global progress = completed steps ÷ total steps across **crewmates only**;
-  broadcast on every change. Impostors see a progress bar that never advances
-  from their own actions.
-- Crew win when progress reaches 100%.
+- `server/tasks.ts`: assign each crewmate N tasks (from settings) across distinct map locations. Task kinds: `short` (1 step), `long` (2-3 steps), `common` (identical for everyone, like fix wiring or swipe card). Ensure distinct locations where map allows; common tasks separate setting. **Real distribution:** 1-2 common, 2-3 short, 1 long per player. Randomize per player but no duplicates.
+- `taskStep` validates proximity to task location (within 2 units), correct step order, phase=playing, alive (ghosts can finish but not for win? actually ghosts can complete but they don't affect? In real Among Us ghosts complete speeds up - here ghosts can complete remaining). Must check task belongs to player.
+- Global progress = completed steps ÷ total steps across **crewmates only**; broadcast on every change with tweened animation on client. Impostors see progress bar that never advances from own actions (but they see real progress? In real Among Us impostors see same progress - but ambiguous. Spec says never advances from their own actions - meaning they have no tasks).
+- Visual tasks list per player stored, shared.
+- Crew win when progress 100%.
 
-**Verify (do not commit a test file)** — complete a task from the wrong
-location and confirm rejection; complete all tasks with one crewmate and
-confirm the progress maths is right.
+**ADVANCED BAR:** Task assignment must be smart: avoid giving two tasks in same room if possible, spread across map to force movement, respect `mapDef.taskLocations` which lists supported kinds per location. Steps for long tasks require returning to same location. Task use key must trigger proper interaction range detection on server (not client). Progress bar in HUD must animate with lerp and have Among Us styling - green fill with black stroke, white percentage? On hover show tasks list.
+
+**Verify (do not commit)** — complete task from wrong location rejected; complete all tasks progress maths right; test ghost can complete; impostor cannot complete (rejected).
 
 ---
 
 ### T8: Task minigames
-****STATUS: DONE****
+**STATUS: TODO**
+
+This task is where you prove you can build REAL Among Us.
 
 **Requirements**
 
-- `client/ui/minigames/` with at least six, all canvas/DOM, no assets:
-  wiring (drag to connect colours), keypad code entry, asteroid clicking,
-  card swipe (speed-sensitive), fuel-hold, and a simple alignment puzzle.
-- Each reports completion via `taskStep`; the server is the source of truth —
-  a client cannot mark a task complete without the interaction.
-- Fully keyboard-operable, and touch-friendly.
-- **Visual tasks** (toggleable in settings) — tasks that play a world-space
-  animation *other players can witness*, proving innocence:
-  `Empty Garbage` (a chute animation in Storage), `Prime Shields` (the ship's
-  shield hexagons light up, visible from anywhere), `Clear Asteroids`
-  (turret fires), `Submit Scan` in MedBay (a full-body scan bar that takes
-  several seconds and locks you in place). The animation is broadcast to
-  everyone with line of sight, **not** just the player doing it. An impostor
-  attempting a visual task must produce **no** animation — that is the point.
+- `client/ui/minigames/` with **at least six fully polished**, canvas/DOM, no assets, **each 150+ lines, each feels like real Among Us task**:
+  1. **Wiring (Fix Wiring):** 4 colored wires left-to-right, each draggable. Right side shuffled. Dragging draws thick bezier curve from start to cursor with glow + spark particles when over correct target. When connected, wire snaps + electric spark animation + sound chime. All 4 must match.
+  2. **Keypad/Code Entry (Download/Prime Shields style):** Security code display 4-digit, player must type matching code on keypad - buttons have press animation (scale 0.9), correct digit lights green, wrong shakes red + error buzz. 3 attempts? No, infinite but tracks.
+  3. **Asteroids (Clear Asteroids):** Spaceship at bottom, asteroids of random shape/size drifting down with rotation. Clicking shoots laser (white line + flash) towards click pos; if hits asteroid, it explodes into 8 particles + flash. Must destroy 20. Has crosshair, spaceship moves slightly.
+  4. **Card Swipe (Admin - Card Swipe):** Card sits in wallet bottom, must drag up slow across reader. Speed measured - too fast (<400ms) or too slow (>1200ms) or not straight enough = fail with red light + shake. Good swipe = green light + chime. Real Among Us has worst swipe - replicate that frustration accurately.
+  5. **Fuel-Hold (Fuel Engines):** Hold button to fuel, fuel gauge climbs with wobble, but you must hold without releasing; if release early, it drains slightly; particle fuel flow animation from can to engine. Mouse/touch hold with progress.
+  6. **Alignment/Chart Course (Chart Course / Align Engine):** Drag ship marker or rotate rings to align target - have two layers, one fixed target ghost, one draggable with momentum, must align within 5 degrees, snap when close with haptic feedback simulation (screen shake).
+  Plus optional but you should try: **Inspect Sample (MedBay)** with anomaly selection, **Empty Garbage lever** pull with hold.
+- Each reports completion via `taskStep`; server source of truth — client cannot mark complete without interaction **must validate step number**.
+- Fully keyboard-operable, touch-friendly with large tap targets.
+- **Visual tasks (toggleable):**
+  - Requirements: tasks that play world-space animation *other players can witness* proving innocence:
+  `Empty Garbage` (chute lever in Storage: lever pulled => garbage bag trash animation ejects from chute bottom into space, visible to others nearby),
+  `Prime Shields` (ship's shield hexagons around map exterior light up one by one cyan cascade, visible from anywhere if in vision),
+  `Clear Asteroids` (turret in Weapons fires lasers visible as `visual` messages: `visual: {kind:'turret_fire', playerId, dir}` broadcast to everyone with LOS),
+  `Submit Scan` in MedBay (full-body scanner bar takes 10 seconds, green scan lines go up/down over player body, locks player in place, cannot move during).
+  Animation broadcast to everyone with LOS, **not** just player. Impostor faking visual gets no broadcast — classic detection method.
+  Client receiving `visual` draws world-space animation over player: shield particles, garbage chute opening, turret flash.
 
-**Verify (do not commit a test file)** — play each minigame to completion and
-confirm the task progresses; confirm closing a minigame early does not; confirm
-an impostor faking a visual task produces no broadcast animation.
+**ADVANCED BAR:** Each minigame must have: title bar like Among Us (dark panel with "TASK" etc), close button, instruction text, background that looks like the machine (metallic gradients), animated parts, sound effects via WebAudio (chime, error buzz, click), and must be impossible to autocomplete without proper interaction (e.g., wiring requires checking color match server-side or client has to drag near target within radius). Not "Click to win" - needs drag, hold, timing.
+
+**Verify (do not commit)** — play each to completion confirm progress; close early no progress; impostor faking visual produces no broadcast.
 
 ---
 
 ### T9: Sabotage system
-****STATUS: DONE****
+**STATUS: TODO**
 
 **Requirements**
 
-- `server/sabotage.ts`. Kinds: `lights` (reduces crew vision), `comms`
-  (hides the task list), `oxygen` and `reactor` (**critical** — a countdown
-  that ends the game for crew if it expires), `doors` (temporarily seals a
-  room).
-- Only impostors may sabotage; a global cooldown applies; only one active
-  sabotage at a time.
-- Fixing requires crewmates at the correct location — criticals need **two
-  players at two different panels simultaneously**.
-- `doors` cannot be fixed by crew — it expires on its own timer.
-- The impostor's sabotage menu offers only the kinds the current map declares
-  (see T20); a sabotage kind the map does not have is rejected.
-- HUD shows the active sabotage and countdown; the map highlights fix points.
+- `server/sabotage.ts`. Kinds: `lights` (reduces crew vision to 40%, impostor keeps 90%, fix at Electrical panel requiring flipping 5 switches up), `comms` (hides task list, admin, cameras, door log; fix by turning knob in Comms), `oxygen` and `reactor` (**critical** — countdown 30-45s that ends game for crew if expires, plays loud klaxon + red screen pulse, requires **two players simultaneously** at two different panels), `doors` (temporarily seals a room for 10s, blocks passage via collision override, auto-expires).
+- Only impostors sabotage; global cooldown 30s + per-kind cooldown; only one active at a time; critical blocks emergency button.
+- Fixing requires crewmates at correct location — criticals need two players at two diff panels simultaneously (check both players present within radius each tick). Show HUD directional arrows to fix points + distance.
+- `doors` cannot be fixed by crew — expires on timer, shows locked door sprite with red X.
+- Sabotage menu for impostor offers only kinds current map declares (see T20); sabotage kind map does not have rejected.
+- HUD shows active sabotage banner + countdown with red flashing, map highlights fix points with pulsating icons.
 
-**COMMIT this test** — `app/tests/sabotage.test.js`: a crewmate attempting
-sabotage is rejected; a critical sabotage sets a countdown; a second sabotage
-during an active one is rejected.
+**ADVANCED BAR:** Sabotage UI must be Among Us style - big red grid with icons for each sabotage, click to trigger with confirmation animation. Fixing interaction must replicate real game: lights - toggle switches mini puzzle where each switch animates flip with click; reactor - handprint scanner where you must hold hand for 3s alongside another player, both handprints glow green when both present. Countdown must sync across clients via server time (not client clock). Play klaxon sound loop + red vignette pulse on HUD. Doors sealed must change collision dynamically - movement.ts must check active door sabotage.
+
+**COMMIT this test** — `app/tests/sabotage.test.js`: crewmate attempting sabotage rejected; critical sets countdown; second sabotage during active rejected; non-host trying doors blocked.
 
 ---
 
 ### T10: Surveillance — Admin, Cameras, Vitals & Door Log
-****STATUS: DONE****
+**STATUS: TODO**
 
-The information systems that make deduction possible. Without these the game is
-guesswork; with them, players build real cases.
+The information systems that make deduction possible. Without these the game is guesswork; with them, players build real cases.
 
 **Requirements**
 
-- `server/surveillance.ts`, all **server-filtered** — a client must never
-  receive data it has not physically walked to a console to obtain.
-- **Admin table** (Admin room): a live map showing a *count* of players per
-  room, never names. Uses the same `roomAt()` from T3.
-- **Security cameras** (Security room): view 4 fixed camera positions showing
-  players within each camera's radius. While *anyone* is watching cameras, a
-  red blinking light appears on those cameras for players in the room — a
-  classic tell.
-- **Vitals** (MedBay): a panel listing every player as `alive` or `dead`.
-  Dead shows only once the kill has happened, giving crewmates a timing signal.
-- **Door Log** (Communications): a timestamped list of the last N room
-  entries/exits, `{ time, playerColour, room, direction }` — colour, not name.
-- Each console requires proximity to use and closes when you walk away.
-- **`comms` sabotage disables Admin, Cameras and Door Log** (not Vitals);
-  `lights` sabotage reduces what cameras show.
+- `server/surveillance.ts`, all **server-filtered** — client must never receive data it has not physically walked to a console to obtain. Console entry/exit proximity check.
+- **Admin table** (Admin room): live map showing *count* of players per room, never names. Uses `roomAt()`. **UI:** Top-down minimap of rooms with numbers inside each room (green text), similar to real Admin. Blinks every 1s, slightly CRT noise.
+- **Security cameras** (Security room): view 4 fixed camera positions showing players within each camera's radius (filtered snapshot). While *anyone* watching cameras, red blinking light appears on those cameras for players in the room — classic tell. **UI:** 4 camera feeds in 2x2 grid, each feed is small live view (re-render mini map + dots for players), with scanlines, slight fisheye, timestamp, REC red dot blink. Player list not shown - just dots movement.
+- **Vitals** (MedBay): panel listing every player as `alive` or `dead`, with color circle + pattern + name, dead shows only once kill happened, giving timing signal. Also shows `OK` green or `DEAD` red with heartbeat line that goes flat on dead. Update every tick.
+- **Door Log** (Communications): timestamped list of last N (20) room entries/exits, `{ time, playerColour, room, direction }` — colour + pattern, not name. Eg "Red entered Cafeteria". Timestamp formatted mm:ss into round.
+- Each console requires proximity to use and closes when walk away (server checks distance each tick; if far, sends close).
+- **`comms` sabotage disables Admin, Cameras and Door Log** (not Vitals); `lights` sabotage reduces what cameras show (smaller radius, noise).
+- **ADVANCED VISUAL:** Consoles have monitor bezel, scanlines, glow, CRT curvature via CSS filter or canvas overlay. Camera red light blinking when watched: small sprite above Security cameras that animates ON/OFF (real tells).
 
-**COMMIT this test** — `app/tests/surveillance.test.js`: a player far from
-Admin who requests admin data is rejected; a player at Admin receives room
-*counts* with no player names or ids; after a kill, Vitals reports exactly one
-dead.
+**COMMIT this test** — `app/tests/surveillance.test.js`: player far from Admin who requests admin data rejected; player at Admin receives room *counts* with no player names/ids; after kill Vitals reports exactly one dead.
 
 ---
 
 ### T11: Extended roles — Engineer, Scientist, Guardian Angel, Shapeshifter
-****STATUS: DONE****
+**STATUS: TODO**
 
-Optional roles, each toggleable in settings with a probability and count. All
-role state is secret and server-side.
+Optional roles, each toggleable in settings with probability and count. All role state secret server-side.
 
 **Requirements**
 
-- `server/roles.ts` — a role registry so later tasks add roles without editing
-  the game loop.
-- **Engineer** (crew): may use vents, with a per-game or cooldown-limited
-  duration. Full vent access from T5, but crew-aligned.
-- **Scientist** (crew): may check Vitals from anywhere via a personal battery
-  that depletes while open and recharges over time.
-- **Guardian Angel** (ghost): may shield one living player for a short duration
-  on a cooldown; a shielded player survives one kill attempt. The impostor sees
-  the attempt fail; the shield flashes.
-- **Shapeshifter** (impostor): may take another player's exact appearance
-  (colour, hat, name) for a duration on a cooldown. Shifting and reverting are
-  visible **only** to anyone with line of sight at that moment.
-- Role assignment respects counts and never assigns two roles to one player.
-- The end-of-game reveal shows every player's role, not just impostor/crew.
+- `server/roles.ts` — role registry so later tasks add roles without editing game loop. Pattern: `RoleDef { id, team, probability, max, onAssign(player), canUseAbility(player, ability), handleAbility(...) }`. Must be extensible without modifying game.ts core.
+- **Engineer** (crew): may use vents, with per-game or cooldown-limited duration (eg 25s total vent time). Full vent access from T5, but crew-aligned — venting as crew still makes blinking light? No but still suspicious. Use same vent animation but blue tint.
+- **Scientist** (crew): may check Vitals from anywhere via personal battery that depletes while open (5s per full charge) and recharges over 10s while closed. Battery UI as circular fill.
+- **Guardian Angel** (ghost): may shield one living player for short duration (10s) on cooldown (60s); shielded player survives one kill attempt. Impostor sees attempt fail (shield flash + rejection). Shield visualization: glowing egg forcefield around player with hexagonal pattern, pulses.
+- **Shapeshifter** (impostor): may take another player's exact appearance (colour, hat, name, pet) for duration (30s) on cooldown (30s). Shifting and reverting visible **only** to anyone with LOS at that moment (broadcast `visual` shift). While shifted, name/colour in snapshots is disguised but server remembers real identity for final reveal. Leaves trace evidence.
+- Role assignment respects counts and never assigns two roles to one player, never makes impostor also Engineer etc. Respects impostor count overlap: Shapeshifter counts as impostor.
+- End-of-game reveal shows every player's role, not just impostor/crew — big role cards.
 
-**COMMIT this test** — `app/tests/extendedroles.test.js`: with Guardian Angel
-enabled, a shielded player survives a kill and the impostor's cooldown still
-resets; a Shapeshifter's `shift` message from a non-shapeshifter is rejected.
+**ADVANCED BAR:** Each role ability needs custom animation and sound: Engineer vent - blue particles different from impostor red; Scientist vitals - tablet flip animation with battery draining bar; Guardian Angel shield - dramatic angel wings flash when shielded, sound angelic chime; Shapeshifter shift - body morph animation (scales distort, colors swap with swirl particles, name dissolves). Shield breaking on kill must show cracked shield particles.
+
+**COMMIT this test** — `app/tests/extendedroles.test.js`: with Guardian Angel enabled, shielded player survives kill and impostor cooldown resets; Shapeshifter's shift from non-shapeshifter rejected.
 
 ---
 
 ### T12: Meetings, discussion & voting
-****STATUS: DONE****
+**STATUS: TODO**
 
 **Requirements**
 
-- `server/meeting.ts`: triggered by `report` or `meeting` (emergency, limited
-  per player per game, with a cooldown after game start).
-- An emergency meeting requires standing at the **emergency button** (a
-  per-map position, T20) and is refused while a critical sabotage is active or
-  while the caller is dead, vented or in a minigame.
-- Phases with timers from settings: discussion → voting → reveal. All players
-  teleport to the meeting table; movement is frozen.
-- Text chat during discussion, living players only; ghosts get a separate
-  ghost channel.
-- One vote per living player, changeable until the timer ends; skip allowed.
-  Tally is hidden until reveal (configurable), ties result in no ejection.
-- **Anonymous votes** (setting): the tally shows counts without revealing who
-  voted for whom.
-- **Quick Chat**: a fixed phrase list ("Where?", "I saw <colour> vent",
-  "<colour> is sus", "Skip", "I did <task> in <room>") composed from menus, so
-  the game is playable without free typing. Free chat remains, toggleable.
-- Dead players' chat is visible only to other dead players — verify this by
-  inspecting a living player's raw frames.
-- Ejection reveals whether they were an impostor (configurable) and checks the
-  win conditions.
+- `server/meeting.ts`: triggered by `report` (near body) or `meeting` (emergency, limited per player per game (1-3), with cooldown after game start 15s).
+- Emergency meeting requires standing at emergency button (per-map position, T20) and refused while critical sabotage active or while caller is dead, vented, in minigame. Must check distance server-side.
+- Phases with timers from settings: discussion (60-120s) → voting (30-120s) → reveal (5-10s). All players teleport to meeting table with slide animation; movement frozen during meeting.
+- Text chat during discussion, living only; ghosts separate ghost channel visible only to ghosts — verified by inspecting living player's raw frames (must never contain ghost chat). Chat with bubbles, color-tagged names, timestamps, rate limit.
+- One vote per living player, changeable until timer ends; skip allowed. Tally hidden until reveal (configurable), ties no ejection. When anonymous, tally shows counts without revealing who voted whom.
+- **Quick Chat:** fixed phrase list ("Where?", "I saw <colour> vent", "<colour> is sus", "Skip", "I did <task> in <room>") composed from menus so game playable without typing. Free chat toggleable. Phrase builder with two dropdowns dependent.
+- Dead players chat visible only to dead — verify.
+- Ejection reveals whether impostor (configurable) and checks win conditions. **Ejection animation:** player ejected into lava/space with slow tumbling, text "X was/was not The Impostor" with drumroll.
 
-**COMMIT this test** — `app/tests/meeting.test.js`: three clients meet, two
-vote for the same player, that player is ejected and the remaining players
-receive an `ejected` message with the correct id.
+**ADVANCED BAR:** Meeting screen must be EXACT replica of Among Us meeting - top-down view of meeting table oval with players seated around (12 positions precomputed around ellipse), your player at bottom, dead bodies as ghosts floating, report reason at top, UI panels: chat left, player list center around table, voting buttons. Voting: when you vote, a small card flies from you to voted slot with animation. Discussion timer circular progress. Emergency button must have obvious press animation + sound. Report must show who reported which body (name). Use Among Us fonts, colors, buttons.
+
+**COMMIT this test** — `app/tests/meeting.test.js`: three clients meet, two vote same player, that player ejected and remaining receive `ejected` with correct id.
 
 ---
 
 ### T13: Win conditions, round flow & spectating
-****STATUS: DONE****
+**STATUS: TODO**
 
 **Requirements**
 
-- Continuous evaluation after every kill, ejection, task completion and
-  sabotage expiry: crew win by tasks or by ejecting all impostors; impostors
-  win on parity or critical-sabotage expiry.
-- `ended` reveals all roles and the reason; a results screen shows who was who.
-- Host can start a new round with the same players; roles reshuffle and state
-  fully resets — **no leakage from the previous round**.
-- Ghosts spectate freely and correctly become living players next round.
+- Continuous evaluation after every kill, ejection, task completion and sabotage expiry: crew win by tasks or ejecting all impostors; impostors win on parity (impostors >= living crew) or critical sabotage expiry.
+- `ended` reveals all roles + reason + stats (tasks done, kills, etc); results screen shows who was who with role cards, victory banner (green for crew, red for impostor) with animation.
+- Host can start new round same players; roles reshuffle and state fully resets — **no leakage from previous round** (positions, tasks, cooldowns, bodies, votes cleared).
+- Ghosts spectate freely and correctly become living next round. Ghost movement speed 1.5x, can pass through walls.
 
-**COMMIT this test** — `app/tests/winconditions.test.js`: with 1 impostor and 1
-crewmate remaining, a kill produces `ended` with `winner: 'impostor'`; a fresh
-round resets `phase` to `lobby`.
+**ADVANCED BAR:** Victory/defeat music stingers, confetti/crowd particles, stats screen lists tasks completed per player, ejection sequence after win shows roles. New round must have 3-2-1 countdown again. No lingering bodies or closed doors. Round reset must be atomic - either all reset or none.
+
+**COMMIT this test** — `app/tests/winconditions.test.js`: with 1 impostor 1 crewmate, kill produces `ended` with `winner:'impostor'`; fresh round resets phase lobby.
 
 ---
 
 ### T14: Lobby, settings & customisation
-****STATUS: DONE****
+**STATUS: TODO**
 
 **Requirements**
 
-- Lobby UI: room code with a copy button, player list with ready states,
-  host-only start.
-- Host-editable settings, validated server-side and broadcast to everyone:
-  impostor count, crew/impostor speed, vision radii, kill cooldown and radius,
-  emergency meeting count, discussion and voting seconds, tasks per player
-  (short/long/common), confirm-ejects, visual-tasks on/off, anonymous votes,
-  map id (T20), max players, **public/private lobby** (T18, default private),
-  AFK timeout and reconnect grace period (T19/T15).
-- Player customisation, all **procedurally drawn** (no binary assets):
-  12 colour-blind-safe colours each with a distinct pattern, ~10 hats,
-  ~6 skins (body overlays), ~4 visors, and ~4 pets that follow the player with
-  eased trailing movement. Cosmetics are cosmetic only — never a gameplay edge.
-  Colours are unique per room; taken colours show as unavailable.
-- **Task bar mode** (setting): `always` / `meetings only` / `never` —
-  a major difficulty lever, since a hidden bar removes the crew's clock.
-- Settings persist in `localStorage` between sessions.
+- Lobby UI: room code big with copy button bouncy animation, player list with ready states (ready button with check animation), host-only start button (needs min players) with shake if not enough, players displayed as bean characters with hats/pets walking around lobby idle? At least show character preview.
+- Host-editable settings, validated server-side and broadcast to everyone: impostor count, crew/impostor speed (0.5-3x), vision radii, kill cooldown/radius, emergency meetings count, discussion/voting seconds, tasks per player (short/long/common counts), confirm-ejects, visual-tasks on/off, anonymous votes, map id (T20), max players, public/private lobby (T18), AFK timeout, reconnect grace period. **Each setting has slider or stepper with Among Us styling. Validation: reject out-of-range, impostorCount >= maxPlayers illegal etc.**
+- Player customisation, **procedurally drawn** (no binary assets): 12 colour-blind-safe colours each distinct pattern (stripes, dots, etc), ~10 hats (cowboy, cap, crown, plant, etc shaped with bezier), ~6 skins (lab coat, suit, etc), ~4 visors (goggles...), ~4 pets (hamster that follows with easing trail 0.15, lagging, mini-me, etc). Cosmetics cosmetic only. Colours unique per room; taken colours show unavailable greyed + cross.
+- Task bar mode (setting): `always` / `meetings only` / `never`.
+- Settings persist localStorage.
 
-**Verify (do not commit a test file)** — change every setting and confirm it
-takes effect in the next round; confirm a non-host cannot change settings even
-by sending the message directly.
+**ADVANCED BAR:** Lobby must not be HTML form dump. Design like Among Us lobby - laptop screen with settings tabs, sliders that look like game UI (rounded track, knob with shadow). Customization panel shows character large central, colour grid 3x4 with pattern previews, hats carousel with left/right arrows, each hat icon drawn procedurally mini. Use localStorage but also sync to server via `cosmetic` message. Ready state must be toggle with character raising hand animation? At minimum checkmark bounce.
+
+**Verify (do not commit)** — change every setting and confirm effect next round; non-host cannot change settings even by sending message directly (test server rejection).
 
 ---
 
 ### T15: Reconnection, resilience & anti-cheat
-****STATUS: DONE****
+**STATUS: TODO**
 
 **Requirements**
 
-- A disconnected player has a grace period (from settings) to rejoin with the
-  same identity and resume their role, tasks and position.
-- Heartbeat ping/pong; drop sockets that stop responding.
-- Rate-limit every message type per socket; kick on sustained abuse.
-- Reject impossible input server-side: out-of-range movement deltas, kills
-  through walls, votes from the dead, task steps from across the map. Log each
-  rejection with the player id.
-- **Phase gating is part of validation**: movement during a meeting, votes
-  outside the voting window, sabotage in the lobby and task steps after the
-  game ends are all rejected, not merely ignored by the client.
-- The room survives the host leaving mid-game.
+- Disconnected player grace period from settings to rejoin same identity and resume role/tasks/position. Store disconnecting timestamp, keep player ghost? Not ghost, but frozen for 30-60s. If rejoins within grace, restore socket, send catch-up snapshot + tasks + role.
+- Heartbeat ping/pong every 10s; drop sockets that stop responding (no pong in 30s). Server sends `ping {at: Date.now()}`.
+- Rate-limit every message type per socket (token bucket: chat 2/sec, move 20/sec, kill 1/sec, vote 1/sec); kick on sustained abuse (send `kicked` then close).
+- Reject impossible input server-side: out-of-range movement deltas (> speed*dt*2), kills through walls (raycast), votes from dead, task steps from across map (distance check), sabotage in lobby, etc. Log each rejection with player id + reason.
+- Phase gating validation: movement during meeting rejected, votes outside voting window rejected, sabotage in lobby rejected, task steps after game ends rejected — all logged, not crash.
+- Room survives host leaving mid-game (promote longest).
+- **Anti-cheat logs** written via console.warn with structured JSON.
 
-**COMMIT this test** — `app/tests/resilience.test.js`: a socket that
-disconnects and rejoins within the grace period keeps its player id; a flood of
-1000 messages results in rate limiting rather than a crash.
+**COMMIT this test** — `app/tests/resilience.test.js`: socket disconnects rejoins within grace keeps player id; flood 1000 messages results rate limiting not crash.
 
 ---
 
 ### T16: Audio, polish & feel
-****STATUS: DONE****
+**STATUS: TODO**
 
-**Requirements**
+**Requirements** — THIS TASK MUST TURN BASIC LOOK INTO REAL GAME LOOK.
 
-- **Procedurally generated audio** via WebAudio — no binary assets: footsteps,
-  kill sting, meeting alarm, sabotage klaxon, task-complete chime, vote blip.
-  A global mute persisted to `localStorage`.
-- **2.5D depth rendering** — the look Among Us actually has, achieved in 2D:
-  - **Y-sorted draw order**: entities lower on the screen draw in front, so
-    players correctly occlude one another and props.
-  - **Soft drop shadows** under every player, scaled by sprite size.
-  - **Parallax**: a background starfield layer scrolls slower than the map.
-  - **Wall height illusion**: draw a short vertical face plus a top edge for
-    each wall segment rather than a flat line.
-  - **Layered lighting**: a dark overlay with a radial cut-out for vision,
-    plus warm pools of light under ceiling lamps, multiplied — this single
-    effect does most of the work of making a flat map feel spatial.
-  - **Squash-and-stretch** on the walk cycle, and a slight lean into movement.
-- Visual polish: walk animation, kill animation, body sprite, vent
-  open/close, meeting transition wipe, damage vignette during criticals.
-- **Responsive layout**: the canvas and every overlay scale from a 360px-wide
-  phone in portrait to a desktop window, honouring safe-area insets. Touch
-  controls reposition for portrait; nothing important sits under a thumb.
-- Nothing flashes faster than 3Hz; a `prefers-reduced-motion` mode disables
-  screen shake and wipes.
-- Performance: 60fps with 12 players on a mid-range laptop. Draw only what is
-  visible; no per-frame allocation in the render loop.
+- **Procedural audio via WebAudio — no binary assets:** footsteps (filtered noise with pitch variation per step), kill sting (sawtooth slide down + sub bass), meeting alarm (two-tone klaxon loop), sabotage klaxon (fast beep + red alert), task-complete chime (sine arpeggio C-E-G), vote blip, vent poof (white noise burst with bandpass), button clicks, shield pop, etc. Global mute persisted localStorage + mute button that shows slashed speaker.
+- **2.5D depth rendering — mandatory advanced implementation:**
+  - **Y-sorted draw order:** entities lower on screen draw front, correctly occlude props and each other. Must sort playerViews + bodies + props by y each frame.
+  - **Soft drop shadows:** under every player: ellipse 30x12, rgba(0,0,0,0.35), blur via shadowBlur or gradient, scaled by walk frame (squash), offset by light angle.
+  - **Parallax:** background starfield layer (200 stars with twinkle) scrolls slower than map (0.3x camera), deeper stars slower (0.1x).
+  - **Wall height illusion:** each wall segment drawn as top edge (light color #444) + vertical face (darker #222) 8px tall with shadow, plus top line highlight.
+  - **Layered lighting:** dark overlay with radial cut-out for vision (inner clear 100%, outer gradient 0% over 40px), plus warm pools under ceiling lamps (drawn as yellow radial gradients multiplied via `globalCompositeOperation='lighten'` or similar) — this single effect makes flat map feel spatial.
+  - **Squash-and-stretch:** walk cycle scales body y 5% smaller when leg extended, x larger, lean 5 degrees into movement direction via canvas rotate.
+- **Visual polish:** walk animation 4 frames legs alternating, kill animation - impostor lunges forward 0.2s with red slash trail, body sprite - half body with bone, separated legs, visor cracked. Vent open/close - lid rotates scaleY, hinge. Meeting transition wipe - radial wipe or speedline wipe covering screen in 300ms. Damage vignette during criticals - red border pulse `sin(time*5)`.
+- **Responsive layout:** canvas + overlays scale 360px-wide phone portrait to desktop, honouring safe-area insets, touch controls reposition portrait; nothing important under thumb (joystick left bottom 80px above edge, action button right bottom). Use `dvh` units, handle resize.
+- Nothing flashes >3Hz; `prefers-reduced-motion` disables shake and wipes (respect media query).
+- Performance: 60fps 12 players mid-range laptop. Draw only what is visible (cull outside viewport + vision); no per-frame allocation in render loop (preallocate arrays, avoid `filter`/`map` creating new arrays each frame; reuse). Use offscreen canvas for static map layer cached.
 
-**Verify (do not commit a test file)** — run with 12 simulated players and
-confirm the frame budget holds; confirm mute persists across a reload.
+**ADVANCED BAR - THIS TASK IS 100% VISUAL QUALITY:** If after your code, game still looks like colored squares on grey background, you failed. Must add: shadows, lighting, wall depth, walk cycle, particle systems (shared particle pool: kill needs 12 blood particles, vent needs 10 dust particles, task complete 8 sparkles). Audio must be synthesized procedurally with WebAudio oscillators - not silent.
+
+**Verify (do not commit)** — 12 simulated players frame budget holds; mute persists reload; test prefers-reduced-motion disables shake; confirm shadows draw.
 
 ---
 
 ### T17: HUD, interaction layer & ghost UX
-****STATUS: DONE****
+**STATUS: TODO**
 
-The plan builds a correct simulation but never specifies the screen the player
-actually looks at. This task is that screen. It is where the game becomes
-playable rather than merely running.
+The plan builds correct simulation but never specifies screen player actually looks at. This task is that screen. It becomes playable rather than merely running.
 
 **Requirements**
 
-- `client/ui/hud.ts` — the persistent in-game layer, drawn from server state
-  only (rule 8 still applies: it renders, it never decides):
-  - **Task list panel** with per-task room + name, struck through on
-    completion, hidden or shown per the task-bar setting from T14.
-  - **Global progress bar**, animated between values, never jumping.
-  - **Context action button** (`use`) that names the thing you are standing on
-    — `Use Admin`, `Fix Wiring`, `Report Body`, `Emergency Meeting` — greyed
-    out when out of range, with the same keybind on desktop (`E`) and a large
-    thumb target on touch.
-  - **Kill button with a radial cooldown dial** for impostors, plus a separate
-    `Sabotage` and `Vent` button; all three disabled with a visible reason
-    rather than silently doing nothing.
-  - **Sabotage banner + countdown**, and directional arrows pointing to the
-    fix points of the active sabotage.
-- `client/ui/mapoverlay.ts` — a full-screen map, opened with `Tab`/a button,
-  showing rooms, your task markers and (for impostors) the sabotage menu
-  wired to the same targets. Opening it does **not** pause the game.
-- **Countdown clock sync**: `net.ts` measures the offset between server and
-  client clocks from `ping`/`pong` and every timer in the UI renders against
-  that offset. A client with a skewed clock must still see the correct number.
-- **Ghost UX**: a desaturated palette, ghost-only chat channel indicator, the
-  remaining-tasks panel still usable, and a clear "you are dead" state that
-  cannot be confused with being alive.
-- **Death / ejection sequences**: the victim sees a kill cam, everyone sees
-  the ejection animation with the configured confirm-ejects text.
-- Every button is reachable by keyboard with a visible focus ring, and every
-  interactive element has an accessible name.
+- `client/ui/hud.ts` — persistent in-game layer, drawn from server state only (rule 8):
+  - **Task list panel** top-left like Among Us: styled panel with rounded corners, black stroke, list with per-task room + name, struck through on completion (with checkmark icon), hidden/shown per task-bar setting. Shows tasks counter "Tasks: 2/5". Animates completed tasks sliding out with fade.
+  - **Global progress bar** bottom like Among Us but top? In Among Us it's top total. Animated between values with lerp (green fill with black stroke, white text %).
+  - **Context action button** (`use`) that names thing standing on — `Use Admin`, `Fix Wiring`, `Report Body`, `Emergency Meeting` — greyed when out of range with same keybind desktop (`E`) and large thumb target touch (64px). Button has Among Us styling: rounded with border + shadow, icon.
+  - **Kill button with radial cooldown dial** for impostors, plus separate `Sabotage` and `Vent` buttons; all three disabled with visible reason rather than silently doing nothing (e.g., "Cooldown: 5.3s", "Too far", "Not impostor"). Kill button red with knife icon, cooldown radial sweep mask clockwise, text in center.
+  - **Sabotage banner + countdown** top-center red bar flashing, plus directional arrows pointing to fix points (e.g., 2 red arrows on screen edge pointing to Reactor). Arrows pulsate.
+- `client/ui/mapoverlay.ts` — full-screen map, opened Tab/button, showing rooms outline, your task markers (! yellow icons), for impostor sabotage menu button grid wired to same targets. Opening does NOT pause game; map semi-transparent over game, you can still move? In Among Us you can move while map open (small map). This should be draggable minimap + fullscreen toggle.
+- **Countdown clock sync:** `net.ts` measures offset between server/client clocks from `ping`/`pong` and every timer renders against offset. Skew client clock 30s must still read correctly. Use exponential moving average for offset.
+- **Ghost UX:** desaturated palette (filter grayscale 30%), ghost-only chat channel indicator (cyan border), remaining tasks panel still usable but ghost tasks label "Ghost Tasks", clear "you are dead — you can still complete tasks but not vote" banner top, ghost float animation, ability to noclip hint.
+- **Death/ejection sequences:** victim sees kill cam (brief red screen then black with "You were killed by [color]" + respawn as ghost), everyone sees ejection animation with configured confirm-ejects text.
+- Every button reachable keyboard with visible focus ring, accessible name.
 
-**Verify (do not commit a test file)** — walk to a console and confirm the
-context button names it and greys out when you step away; skew the client
-clock by 30 seconds and confirm a sabotage countdown still reads correctly;
-confirm an impostor's kill button shows a reason when disabled.
+**ADVANCED BAR:** HUD must replicate Among Us HUD layout exactly - tasks top-left, settings gear top-right, map button bottom-right (with mini-map preview), use button bottom-right above map, kill/sabotage/vent buttons centered bottom in stack, progress bar bottom horizontal? Check real Among Us screenshots. Buttons must have icons drawn procedurally (kill knife icon). Must have among us font (Nunito/rounded), black outline text.
+
+**Verify (do not commit)** — walk to console confirm context button names + greys when away; skew client clock 30s confirm sabotage countdown correct; impostor kill button shows reason when disabled; ghost palette desaturated.
 
 ---
 
 ### T18: Public lobby browser & quick join
-****STATUS: DONE****
+**STATUS: TODO**
 
-A 4-letter code only works if you already have friends online. Without this the
-game is empty for a solo visitor, which is the most common first experience.
+A 4-letter code only works if you already have friends online. Without this the game is empty for solo visitor, which is most common first experience.
 
 **Requirements**
 
-- `server/browser.ts`: a registry of rooms whose host set them **public** in
-  settings. Private is the default and a private room is never listed.
-- `GET /api/lobbies` → an array of `{ code, hostName, players, max, mapId,
-  impostors, phase }` for public rooms in `lobby` phase only. No player ids,
-  no names beyond the host's, never a room mid-game.
-- `quickjoin` picks the fullest joinable public lobby, and creates a new public
-  room if there is none — one click from the front page to a game.
-- The lobby browser UI lists rooms with a refresh, and shows a friendly empty
-  state with a `Create room` call to action.
-- A room disappears from the list the moment it starts, fills, or empties.
+- `server/browser.ts`: registry of rooms whose host set them **public** in settings. Private default and private never listed. Registry auto-prunes closed rooms.
+- `GET /api/lobbies` → array of `{ code, hostName, players, max, mapId, impostors, phase }` for public rooms lobby phase only. No player ids, names beyond host's, never mid-game room.
+- `quickjoin` picks fullest joinable public lobby, creates new public room if none — one click front page to game. Must atomically join.
+- Lobby browser UI lists rooms with refresh button spinning anim, shows card per room: map thumbnail (mini procedural), host name, players/max bar with dots representing crewmate colors, map name, impostor count. Friendly empty state with illustration + `Create room` CTA with bounce.
+- Room disappears list moment it starts, fills, empties.
 
-**COMMIT this test** — `app/tests/browser.test.js`: a private room does not
-appear in `/api/lobbies`; a public room does and shows the correct player
-count; `quickjoin` with no public rooms available creates one and returns a
-`joined` message.
+**ADVANCED BAR:** Lobby browser must look like Among Us public list style - dark panel with row items each rounded with hover highlight. Quick join button big prominent "FIND GAME" with Among Us styling, pulse glow animation. Thumbnail map drawn mini canvas same as big map but tiny.
+
+**COMMIT this test** — `app/tests/browser.test.js`: private room not appear in `/api/lobbies`; public room does and shows correct player count; `quickjoin` with no public rooms creates one and returns `joined`.
 
 ---
 
 ### T19: Moderation, AFK & text safety
-****STATUS: DONE****
+**STATUS: TODO**
 
-Any game with strangers and a chat box needs this, and retrofitting it after
-the protocol freezes is far more expensive than building it now.
+Any game with strangers and chat box needs this, retrofitting after protocol freezes far more expensive than building now.
 
 **Requirements**
 
-- `server/moderation.ts`. Host may `kick` (removable, may rejoin) and `ban`
-  (code-scoped, cannot rejoin for the life of the room) any other player.
-  A kicked socket receives `kicked` with a reason before it is closed.
-- **Vote-kick** during the lobby only, as a fallback when the host is the
-  problem: a majority of the lobby removes a player.
-- **AFK handling**: a player with no input for the settings timeout is marked
-  AFK; if the game is running they are auto-skipped in votes, and after a
-  second timeout removed so they cannot stall a round forever.
-- Chat safety on the free-text channel: length cap, rate limit, control- and
-  zero-width-character stripping, and a naive profanity filter with a
-  host-toggleable setting. Player **names** go through the same filter at join.
-- Leaving mid-game must not corrupt state: the leaver's tasks come out of the
-  denominator, and the win conditions are re-evaluated immediately.
+- `server/moderation.ts`. Host may `kick` (removable, may rejoin) and `ban` (code-scoped, cannot rejoin life of room) any other player. Kicked socket receives `kicked` with reason before close. Host cannot kick self. Ban list per room with timeout? Permanent for room lifetime.
+- **Vote-kick during lobby only** as fallback when host is problem: majority lobby removes player (votes tracked, if >50% of present players vote kick same target, kick). Uses same `mod` message with `votekick`.
+- **AFK handling:** player with no input for settings timeout (default 60s) marked AFK (icon above head: zZ), if game running auto-skipped in votes (vote not counted, skipped), after second timeout (120s) removed so cannot stall forever. Server tracks `lastInputAt` per player (move/use/chat/vote).
+- Chat safety on free-text channel: length cap 120, rate limit 2/sec burst 5, control- and zero-width-char stripping (regex), naive profanity filter with list ~50 common English profanities plus leet variants (replace `*`?), host-toggleable setting `profanityFilter`. Player **names** go through same filter at join (reject or censor). Log filtered attempts.
+- Leaving mid-game must not corrupt state: leaver's tasks come out of denominator (recalculate progress), win conditions re-evaluated immediately (if impostor left may cause crew win), bodies remain? Yes remains.
 
-**COMMIT this test** — `app/tests/moderation.test.js`: a non-host `mod` message
-is rejected; a banned player rejoining the same code receives an `error`; a
-player leaving mid-game causes task progress to be recomputed against the
-remaining crewmates.
+**ADVANCED BAR:** AFK indicator must be visual - zZ floating above head animation, plus grayed name in meeting. Vote-kick UI must show vote count. Moderation messages in chat system-styled (yellow). Filtering must not break valid names like "assassin" naive; need word boundaries. Profanity list configurable.
+
+**COMMIT this test** — `app/tests/moderation.test.js`: non-host `mod` rejected; banned player rejoining same code receives `error`; player leaving mid-game causes progress recomputed against remaining crewmates.
 
 ---
 
 ### T20: Second map & map registry
-****STATUS: DONE****
+**STATUS: TODO**
 
-One map is a demo; the replayability of this genre comes from knowing several
-maps well. This task makes the map data plural without touching game logic.
+One map is demo; replayability comes from knowing several maps well. This task makes map data plural without touching game logic.
 
 **Requirements**
 
-- Refactor `shared/map.ts` into `shared/maps/` with a `MapDef` type and a
-  registry keyed by `mapId`. **No renames of existing exported fields** —
-  rule 6 holds; `shared/map.ts` may re-export the default map for compatibility.
-- A `MapDef` owns: walls, named rooms, vents and links, task locations and
-  which task kinds each supports, spawn points, the emergency-button position,
-  sabotage fix points, camera positions, and the sabotage kinds it offers.
-- Ship a **second, structurally different map** — smaller, more corridors,
-  more vents — so the difference is felt, not cosmetic.
-- Map is chosen in lobby settings and broadcast in `RoomView`; the client
-  renders whichever map the server names, with **zero** hard-coded geometry.
-- Every system that had the map baked in — movement, `roomAt`, vision,
-  tasks, sabotage, surveillance, minimap — reads it from the registry.
+- Refactor `shared/map.ts` into `shared/maps/` with `MapDef` type and registry keyed by `mapId`. **No renames of existing exported fields** — rule 6 holds; `shared/map.ts` may re-export default map for compatibility. Type: `MapDef { id, name, walls: Segment[], rooms: RoomDef[], taskLocations: TaskLocation[], vents: Vent[], spawnPoints, emergencyButton, sabotagePoints, cameraPoints, sabotageKindsOffered }`.
+- Ship **second, structurally different map** — smaller, more corridors, more vents — so difference is felt, not cosmetic. Eg `MIRA Mini` vs `Skeld`. Must have different room names, layout topology different (more linear vs central), more vent links (8 extra), different visual theme (slightly different wall colors per map, floor textures).
+- Map is chosen in lobby settings and broadcast in `RoomView`; client renders whichever map server names, with **zero hard-coded geometry**. Client must fetch mapId from registry and render accordingly, including props per map.
+- Every system that had map baked — movement, `roomAt`, vision, tasks, sabotage, surveillance, minimap — reads from registry via `getMap(mapId)`. No if(mapId===) in logic; all data-driven.
+- Map thumbnails procedurally generated mini preview for browser.
 
-**Verify (do not commit a test file)** — play a full round on each map;
-confirm switching maps between rounds fully re-seeds task locations, spawns
-and camera positions with no geometry left over from the previous map.
+**ADVANCED BAR:** Second map must be as detailed as first - not just 4 walls different. Should feel like a different spaceship with its own personality. First map Skeld-like (circular, central Cafeteria), second map Mira-like (vertical, narrow corridors, lab). Each has own prop set. Switching maps between rounds must fully re-seed tasks/spawns/camera with no geometry leftover (verify by clearing and rebuilding).
+
+**Verify (do not commit)** — play full round on each map; confirm switching maps between rounds fully re-seeds task locations, spawns, camera positions with no geometry left over from previous map.
 
 ---
 
 ### T21: Deployment, docs & final acceptance
-****STATUS: DONE****
+**STATUS: TODO**
 
 Final task.
 
 **Requirements**
 
-- `npm start` serves a production build on one port with correct caching
-  headers; `PORT` and `HOST` are configurable.
-- `app/README.md`: how to run locally, how to play, every setting explained,
-  the full protocol table, and the architecture in a paragraph.
-- `GET /api/health` extends to `{status, uptime, rooms, players, version}` —
-  **keep `status` and `rooms`** so T1's test still passes.
-- A `?bots=N` dev flag spawns simple bot players for solo testing. Bots walk,
-  complete tasks and vote randomly — enough to exercise a full round alone.
-- **Browser support check**: latest Chrome, Firefox and Safari, desktop and
-  mobile, including iOS Safari (test touch controls and WebAudio unlocking on
-  first gesture there specifically).
-- Final pass: no console errors, no memory growth over a 10-minute game, no
-  unhandled promise rejections, and every earlier committed test still passing
-  (`health`, `lobby`, `roles`, `vision`, `sabotage`, `surveillance`,
-  `extendedroles`, `meeting`, `winconditions`, `resilience`, `browser`,
-  `moderation`, `acceptance`).
+- `npm start` serves production build on one port with correct caching headers (bundle.js immutable cache 1y, index.html no-cache); `PORT` and `HOST` configurable; graceful shutdown on SIGTERM closing ws.
+- `app/README.md`: how to run locally, how to play, every setting explained, full protocol table, architecture paragraph, plus advanced features list, map list, roles list, screenshots description. Must look professional with Among Us style header.
+- `GET /api/health` extends to `{status, uptime, rooms, players, version}` — **keep `status` and `rooms`** so T1's test still passes.
+- `?bots=N` dev flag spawns simple bot players for solo testing. Bots walk (random walk + path toward task), complete tasks (auto taskStep after delay), vote randomly, can be impostor and kill? Simple AI: if impostor bot sees crewmate within kill radius and cooldown over and no witnesses, kill. Enough to exercise full round alone. Bot rendering uses same sprite but with BOT label.
+- **Browser support check:** latest Chrome, Firefox, Safari, desktop+mobile, including iOS Safari (test touch controls and WebAudio unlocking on first gesture there specifically). Document support.
+- Final pass: no console errors, no memory growth over 10-min game (check setInterval leaks), no unhandled promise rejections, and every earlier committed test still passing (`health`, `lobby`, `roles`, `vision`, `sabotage`, `surveillance`, `extendedroles`, `meeting`, `winconditions`, `resilience`, `browser`, `moderation`, `acceptance`).
 
-**COMMIT this test** — `app/tests/acceptance.test.js`: health reports the
-extended shape while still having `status === 'ok'`; a full lobby → start →
-kill → meeting → eject → end sequence completes over WebSocket without error.
+**COMMIT this test** — `app/tests/acceptance.test.js`: health reports extended shape while still having `status === 'ok'`; full lobby→start→kill→meeting→eject→end sequence completes over WebSocket without error.
+
+**ADVANCED BAR FOR FINAL:** README must have professional polish, include how to create custom maps, how roles work, and list advanced rendering techniques used. Bots must be usable and not jittery - they should use server-side movement with same collision. Production build must be minified but still work.
 
 ---
 
 ## Out of scope — deliberately not built
 
-Listed so no agent "helpfully" adds them. Building any of these is a failed
-round.
+Listed so no agent "helpfully" adds them. Building any of these is a failed round.
 
-- **Accounts, persistence, databases, stats or leaderboards.** Rooms are
-  ephemeral and in-memory; that is a design decision, not an omission.
-- **Voice chat / WebRTC.** Players use Discord. This adds a signalling server,
-  TURN, permissions and a fifth dependency for no deduction value.
+- **Accounts, persistence, databases, stats or leaderboards.** Rooms are ephemeral and in-memory; that is a design decision, not an omission.
+- **Voice chat / WebRTC.** Players use Discord. This adds a signalling server, TURN, permissions and a fifth dependency for no deduction value.
 - **Matchmaking beyond T18's lobby browser** — no skill rating, no queues.
-- **Monetisation, cosmetics unlocks, currency.** All cosmetics are free and
-  available from the start.
+- **Monetisation, cosmetics unlocks, currency.** All cosmetics are free and available from the start.
 - **Native or mobile app wrappers.** Browser only.
 - **A map editor.** T20 makes maps data; authoring them is a code change.
-- **Anti-cheat beyond server authority + T15 validation.** No obfuscation, no
-  client attestation.
+- **Anti-cheat beyond server authority + T15 validation.** No obfuscation, no client attestation.
 - **i18n.** English only; keep strings in one module so it stays possible.
+
+---
+
+## Advanced Definition of Done Checklist (Apply to EVERY Task)
+
+Before marking your task DONE, confirm:
+
+- [ ] Visual: Would a player confuse your UI with a dev debug panel? If yes, style it like Among Us (rounded corners, black stroke text, shadows).
+- [ ] Animation: Every state change has tween/animation (no instant pop). Buttons have hover/press scale.
+- [ ] Code: No `any`, no TODO, no console.log left, no 300-line function, constants.ts used.
+- [ ] Server authoritative: Client intent only, server validates distance, LOS, cooldown, phase.
+- [ ] No secret leak: Carefully review what you send in snapshot/joined.
+- [ ] Polish: Shadows, gradients, particles or glow where appropriate.
+- [ ] Tested: You ran with 2+ clients and drove the feature manually + typecheck + build.
+- [ ] Feels like real Among Us, not a clone toy.
+
+**If you skip this checklist, next agent will have to rewrite your basic code and you fail.**
 
 ---
 
 ## Activity Log
 
 <!-- Agents append one line here per completed task -->
-- T1 completed — added the strict TypeScript/esbuild server and client skeleton, same-port static/WebSocket hosting, health endpoint, and smoke coverage.
-Done T2 — rooms, protocol, constants, types, lobby smoke test.
-T3 done - map geometry added in app/src/shared/map.ts with walls, rooms, roomAt, and vent links.
