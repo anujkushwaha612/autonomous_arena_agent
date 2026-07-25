@@ -336,7 +336,7 @@ Committed test files:
 ## Task list — WITH ADVANCED BARS
 
 ### T1: Server skeleton, static hosting & build
-**STATUS: TODO**
+**STATUS: DONE**
 
 Nothing else can start without this.
 
@@ -808,3 +808,4 @@ Before marking your task DONE, confirm:
 ## Activity Log
 
 <!-- Agents append one line here per completed task -->
+- T1 DONE — server skeleton (http+ws on one port), static hosting with traversal guard, `/api/health`, Among Us styled landing page with canvas starfield & spinning crewmate SVG, esbuild bundling, strict TS, `app/tests/health.test.js` committed and passing via `node fastcapture/smoke.js`.
