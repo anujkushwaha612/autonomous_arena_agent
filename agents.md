@@ -1,4 +1,4 @@
-# AgentChain — Linkly, a URL shortener & analytics API
+# AgentChain — RepLog, a gym & strength-training tracker
 
 The **task brain**. Each agent completes exactly ONE task, then hands off.
 
@@ -12,385 +12,435 @@ The **task brain**. Each agent completes exactly ONE task, then hands off.
 
 ## 1. What we are building
 
-**Linkly** — a URL shortener with click analytics, served as a JSON REST API
-with a small web UI. Think Bitly, minus the account system's complexity.
+**RepLog** — a self-hosted gym tracker. You log workouts from your phone at the
+rack, and it tells you whether you are actually getting stronger.
 
 By the end it will:
 
-- shorten a long URL to a short code, and redirect on visit
-- support custom aliases, expiry dates, and click limits
-- record every click (timestamp, referrer, user-agent) and report analytics
-- protect write endpoints with API keys, and rate-limit abusive callers
-- list/search/paginate links, export data as JSON and CSV
-- expose a single-page dashboard and a `/metrics` endpoint
+- hold an exercise library (name, muscle group, equipment) you can extend
+- record workouts: exercise → sets of `{ weight, reps, rpe }`, with rest timers
+- track personal records and estimated 1-rep-max over time
+- suggest your next working weight from recent performance (progressive overload)
+- run routines/templates (Push-Pull-Legs, 5×5) and generate a workout from one
+- chart volume, frequency and per-muscle-group balance
+- show a streak calendar and body-weight log
+- export everything to JSON/CSV, and import it back
 
 ## 2. Hard technical constraints
 
 These are not suggestions. Breaking them breaks the pipeline.
 
-1. **Node.js standard library ONLY.** No `express`, no `ws`, no `uuid`, no
-   `bcrypt`. `app/package.json` must have an empty `dependencies` object.
-   Native modules (`crypto`, `http`, `fs`, `url`, `path`) are all you need.
-   *Reason: every added dependency is an install that can fail on a different
-   machine and silently break every later task.*
-2. **`npm start` must boot the server** and it must listen on
-   `process.env.PORT || 3000`. The test runner boots your app this way.
+1. **Node.js standard library ONLY.** No `express`, no `uuid`, no ORM, no chart
+   library. `app/package.json` must keep `"dependencies": {}`.
+   *Reason: every dependency is an install that can fail on a different machine
+   and silently break every later task.*
+2. **`npm start` must boot the server** on `process.env.PORT || 3000`.
+   The test runner boots your app exactly this way.
 3. **All state is JSON files under `app/data/`.** Write atomically: write to
-   `<file>.tmp` then `fs.renameSync`. Never leave a half-written file.
-4. **Never break an earlier task.** Endpoints and JSON field names defined by a
-   completed task are a frozen contract. You may *add* fields; you may not
+   `<file>.tmp`, then `fs.renameSync`. Never leave a half-written file.
+4. **Never break an earlier task.** Any endpoint or JSON field name shipped by a
+   completed task is a frozen contract. You may *add* fields; you may not
    rename or remove them.
-5. **Every function you call must exist.** If you write
-   `store.getLink(code)` in `server.js`, you must implement and export
-   `getLink` in `store.js` **in the same patch**. A missing export crashes the
-   app at runtime even though every file parses, and the worker will reject it.
-6. **Every response is JSON** (`Content-Type: application/json`) except the
-   redirect (302) and the HTML dashboard. Errors use
-   `{ "error": "<human readable message>" }` with a correct HTTP status.
-7. **No secrets in code.** Read anything sensitive from `process.env`.
+5. **Every function you call must exist.** If you write `store.getSets(id)` in
+   `server.js`, implement and export `getSets` in `store.js` **in the same
+   patch**. A missing export crashes at runtime even though every file parses,
+   and the worker will reject the patch.
+6. **Every response is JSON** (`Content-Type: application/json`) except the HTML
+   dashboard. Errors use `{ "error": "<human readable>" }` with a correct status.
+7. **Units are metric and explicit.** Weight is `kg` (float), never pounds.
+   Dates are ISO `YYYY-MM-DD`. Timestamps are full ISO-8601 UTC strings.
+8. **No secrets in code.** Read anything sensitive from `process.env`.
 
 ## 3. Module contract
 
-Keep these boundaries. `server.js` handles HTTP only and delegates all logic.
+`server.js` handles HTTP only and delegates all logic.
 
 | File | Must export | Introduced by |
 |---|---|---|
 | `app/server.js` | `createServer()` returning an `http.Server` | T1 |
 | `app/router.js` | `route(req, res)`, `addRoute(method, pattern, handler)` | T1 |
-| `app/store.js` | `read(name)`, `write(name, data)`, `init()` | T2 |
-| `app/links.js` | `createLink`, `getLink`, `listLinks`, `deleteLink` | T3 |
-| `app/validate.js` | `isValidUrl`, `isValidAlias`, `normalizeUrl` | T4 |
-| `app/analytics.js` | `recordClick`, `getStats`, `getTopLinks` | T5 |
-| `app/expiry.js` | `isExpired`, `pruneExpired` | T6 |
-| `app/auth.js` | `createKey`, `verifyKey`, `requireKey` | T7 |
-| `app/ratelimit.js` | `check`, `reset` | T8 |
-| `app/search.js` | `searchLinks`, `paginate` | T9 |
-| `app/export.js` | `toJson`, `toCsv` | T10 |
+| `app/store.js` | `init()`, `read(name)`, `write(name, data)` | T1 |
+| `app/exercises.js` | `listExercises`, `getExercise`, `createExercise`, `seedDefaults` | T2 |
+| `app/workouts.js` | `startWorkout`, `finishWorkout`, `getWorkout`, `listWorkouts`, `deleteWorkout` | T3 |
+| `app/sets.js` | `addSet`, `updateSet`, `deleteSet`, `getSets` | T4 |
+| `app/records.js` | `estimate1RM`, `getPersonalRecords`, `getExerciseHistory` | T5 |
+| `app/progression.js` | `suggestNextWeight`, `getPlateBreakdown` | T6 |
+| `app/routines.js` | `listRoutines`, `createRoutine`, `startFromRoutine`, `seedRoutines` | T7 |
+| `app/stats.js` | `volumeByWeek`, `muscleGroupBalance`, `workoutFrequency` | T8 |
+| `app/streaks.js` | `getStreak`, `getCalendar`, `logBodyWeight`, `getBodyWeightHistory` | T9 |
+| `app/transfer.js` | `exportAll`, `importAll`, `toCsv` | T10 |
+| `app/public/index.html` | — (dashboard UI) | T11 |
 | `app/metrics.js` | `snapshot`, `increment` | T12 |
 
-## 4. Testing — mandatory, not optional
+## 4. Data shapes
+
+Agree on these once so later tasks are not guessing.
+
+```js
+Exercise = { id, name, muscleGroup, equipment, isCustom, createdAt }
+// muscleGroup ∈ chest|back|legs|shoulders|arms|core|fullBody
+// equipment   ∈ barbell|dumbbell|machine|cable|bodyweight|kettlebell
+
+Workout  = { id, startedAt, finishedAt|null, notes, routineId|null }
+Set      = { id, workoutId, exerciseId, weightKg, reps, rpe|null, isWarmup, loggedAt }
+Routine  = { id, name, exercises: [{ exerciseId, targetSets, targetReps }], createdAt }
+BodyWeight = { date, weightKg }
+```
+
+`rpe` is Rate of Perceived Exertion, 1–10, optional.
+
+## 5. Testing — mandatory, not optional
 
 Every task adds **one** file: `app/tests/<name>.test.js`.
 
 ```js
 // app/tests/example.test.js
 module.exports = async (t) => {
-  const res = await t.post('/api/links', { url: 'https://example.com' });
-  t.assert.equal(res.status, 201, 'should create a link');
-  t.assert.truthy(res.json.code, 'response must include a code');
+  const res = await t.post('/api/workouts', {});
+  t.assert.equal(res.status, 201, 'should start a workout');
+  t.assert.truthy(res.json.id, 'response must include an id');
 };
 ```
 
 The server is **already running** — do not start it yourself. Available on `t`:
 
 - `t.get(path, headers)`, `t.post(path, body, headers)`, `t.put(...)`, `t.del(...)`
-- `t.request(method, path, body, headers)` → `{ status, json, text }`
+- `t.request(method, path, body, headers)` → `{ status, headers, json, text }`
 - `t.assert(cond, msg)`, `t.assert.equal(a, b, msg)`, `t.assert.truthy(v, msg)`
 - `t.sleep(ms)`, `t.baseUrl`, `t.appRequire(name)`
 
 Rules for tests:
 
-- Must be **deterministic and independent** — generate unique URLs/aliases with
-  `Date.now()`; never depend on another test having run first.
-- Must **fail loudly** — assert on real values, not just `status < 500`.
+- **Deterministic and independent.** Create your own data; never assume another
+  test ran first. Make names unique with `Date.now()`.
+- **Assert real values**, not just `status < 500`.
 - Keep under ~40 lines.
-- Run the whole suite before handing off: `node fastcapture/smoke.js`.
-  **Every test must pass**, including tests written by earlier tasks. If you
-  broke an earlier test, you broke their feature — fix it before handing off.
+- Before handing off run `node fastcapture/smoke.js` — **every test must pass**,
+  including tests from earlier tasks. If you broke one, you broke their feature.
 
 ---
 
 ## Task list
 
-### T1: HTTP server & router foundation
-**STATUS: DONE**
+### T1: Server, router & storage foundation
+**STATUS: TODO**
 
-The skeleton everything else plugs into.
+The skeleton everything plugs into. This task is deliberately larger because
+nothing else can start without it.
 
 **Requirements**
 
-- `app/package.json` — name `linkly`, `"start": "node server.js"`,
+- `app/package.json` — name `replog`, `"start": "node server.js"`,
   `"dependencies": {}`.
-- `app/router.js` — a tiny router with no dependencies:
-  - `addRoute(method, pattern, handler)` where pattern may contain params,
-    e.g. `'/api/links/:code'`
-  - `route(req, res)` matches method + path, extracts params onto `req.params`,
-    parses the query string onto `req.query`, and calls the handler.
-  - Unmatched route → `404` with `{ "error": "Not found" }`.
-  - Handler that throws → `500` with `{ "error": "Internal server error" }`
-    (log the real error server-side; never leak a stack trace to the client).
+- `app/router.js`:
+  - `addRoute(method, pattern, handler)`; patterns may contain params such as
+    `'/api/workouts/:id'`
+  - `route(req, res)` matches method + path, puts params on `req.params` and the
+    parsed query string on `req.query`
+  - unmatched → `404` `{ "error": "Not found" }`; a handler that throws → `500`
+    `{ "error": "Internal server error" }` (log the real error server-side, never
+    leak a stack trace)
+  - export a `sendJson(res, status, obj)` helper
+- `app/store.js`:
+  - `init()` creates `app/data/` and any missing files with defaults
+  - `read(name)` returns the parsed file, or the default if missing/corrupt —
+    **never throws**
+  - `write(name, data)` is **atomic** (`.tmp` then `renameSync`)
+  - defaults: `exercises` `[]`, `workouts` `[]`, `sets` `[]`, `routines` `[]`,
+    `bodyweight` `[]`
+  - a small `id()` helper: 12 hex chars from `crypto.randomBytes`
 - `app/server.js`:
-  - exports `createServer()` returning an `http.Server`
-  - JSON body parsing for POST/PUT (reject bodies over 1 MB with `413`)
-  - a `sendJson(res, status, obj)` helper
+  - `createServer()` returning an `http.Server`
+  - JSON body parsing for POST/PUT; reject bodies over 1 MB with `413`, malformed
+    JSON with `400`
+  - calls `store.init()` on startup
   - `GET /api/health` → `200` `{ "status": "ok", "uptime": <seconds> }`
-  - when run directly (`require.main === module`) it listens on
-    `process.env.PORT || 3000` and logs the address
+  - listens on `process.env.PORT || 3000` when run directly
+- `app/data/.gitkeep`, and add `app/data/*.json` to `.gitignore`
 
-**Test** — `app/tests/health.test.js`: `GET /api/health` returns 200 and
+**Test** — `app/tests/health.test.js`: `/api/health` returns 200 with
 `status === 'ok'`; an unknown path returns 404 with an `error` field.
 
 ---
 
-### T2: JSON storage layer
-**STATUS: DONE**
+### T2: Exercise library
+**STATUS: TODO**
 
-Durable persistence used by every later task.
-
-**Requirements**
-
-- `app/store.js`:
-  - `init()` — create `app/data/` and any missing files with sane defaults
-  - `read(name)` — read `app/data/<name>.json`, returning the default if absent
-    or corrupt (never throw)
-  - `write(name, data)` — **atomic**: write `<name>.json.tmp`, then rename
-  - an in-memory cache so repeated reads don't hit disk every request, kept
-    consistent on write
-- Defaults: `links` → `{}`, `clicks` → `{}`, `keys` → `{}`
-- `app/data/.gitkeep` so the directory exists in git
-- `app/server.js` calls `store.init()` on startup
-- Add `app/data/*.json` to the repo `.gitignore` (keep `.gitkeep`)
-
-**Test** — `app/tests/store.test.js`: use `t.appRequire` to load `store.js`
-directly; write a value, read it back, confirm it round-trips; confirm reading
-an unknown name returns the default instead of throwing.
-
----
-
-### T3: Create links & redirect
-**STATUS: DONE**
-
-The core product.
+You cannot log a set without something to log it against.
 
 **Requirements**
 
-- `app/links.js`:
-  - `createLink({ url, alias })` → `{ code, url, createdAt, clicks: 0 }`
-  - `getLink(code)` → the link or `null`
-  - `listLinks()` → array of all links, newest first
-  - `deleteLink(code)` → `true` if deleted, `false` if it didn't exist
-  - codes are 7 chars from `[A-Za-z0-9]`, generated with `crypto.randomBytes`,
-    and must not collide with an existing code
+- `app/exercises.js`:
+  - `seedDefaults()` — insert ~20 common exercises **once** (idempotent: safe to
+    call on every boot). Cover all muscle groups, e.g. Barbell Back Squat,
+    Deadlift, Bench Press, Overhead Press, Barbell Row, Pull-Up, Dip,
+    Romanian Deadlift, Leg Press, Lat Pulldown, Bicep Curl, Tricep Pushdown,
+    Lateral Raise, Plank, Hip Thrust.
+  - `listExercises({ muscleGroup, equipment, q })` — filter and search by name
+  - `getExercise(id)` → exercise or `null`
+  - `createExercise({ name, muscleGroup, equipment })` → validates the enums from
+    §4, rejects a duplicate name (case-insensitive), sets `isCustom: true`
 - Endpoints:
-  - `POST /api/links` body `{ url, alias? }` → `201`
-    `{ code, url, shortUrl, createdAt }` where `shortUrl` is the absolute URL
-    built from the request `Host` header
-  - `GET /api/links` → `200` `{ links: [...], total: <n> }`
-  - `GET /api/links/:code` → `200` the link, or `404`
-  - `DELETE /api/links/:code` → `204`, or `404`
-  - `GET /:code` → `302` redirect to the target URL, or `404` JSON if unknown
-- Reserve `api`, `health`, `metrics` as codes so they never shadow a route.
+  - `GET /api/exercises` (supports `?muscleGroup=`, `?equipment=`, `?q=`)
+  - `GET /api/exercises/:id` → 200 / 404
+  - `POST /api/exercises` → `201`, or `400` invalid enum, or `409` duplicate name
+- `server.js` calls `seedDefaults()` on startup.
 
-**Test** — `app/tests/links.test.js`: create a link, fetch it by code, follow
-`GET /:code` and assert a 302 with the correct `Location` header, delete it,
-then confirm it 404s.
+**Test** — `app/tests/exercises.test.js`: the seeded list is non-empty;
+filtering by `muscleGroup=legs` returns only leg exercises; creating a duplicate
+name returns 409; an invalid `muscleGroup` returns 400.
 
 ---
 
-### T4: URL validation & custom aliases
-**STATUS: DONE**
+### T3: Workout sessions
+**STATUS: TODO**
 
-Stop garbage getting in.
-
-**Requirements**
-
-- `app/validate.js`:
-  - `isValidUrl(str)` — must parse via `new URL()`, and scheme must be
-    `http:` or `https:`. Reject `javascript:`, `data:`, `file:`.
-  - `normalizeUrl(str)` — trim, add `https://` if no scheme, strip a trailing
-    slash on a bare host, lowercase the hostname
-  - `isValidAlias(str)` — 3–32 chars, `[a-zA-Z0-9_-]` only, not a reserved word
-- Wire into `POST /api/links`:
-  - invalid URL → `400` `{ "error": "Invalid URL" }`
-  - invalid alias → `400` `{ "error": "Invalid alias" }`
-  - alias already taken → `409` `{ "error": "Alias already in use" }`
-  - a valid alias becomes the code
-- Store the normalized URL, not the raw input.
-
-**Test** — `app/tests/validate.test.js`: assert `400` for `not-a-url` and for
-`javascript:alert(1)`; create a link with a unique custom alias and confirm the
-returned `code` matches it; creating the same alias twice returns `409`.
-
----
-
-### T5: Click analytics
-**STATUS: DONE**
-
-Record and report every visit.
+A workout is a container for sets, with a start and an end.
 
 **Requirements**
 
-- `app/analytics.js`:
-  - `recordClick(code, { referrer, userAgent, ip })` — append a click record
-    with an ISO `timestamp`; also increment the link's `clicks` counter
-  - `getStats(code)` → `{ total, byDay: { 'YYYY-MM-DD': n }, topReferrers: [...],
-    recent: [...last 10] }`
-  - `getTopLinks(limit = 10)` → most-clicked links, descending
-- `GET /:code` calls `recordClick` **before** redirecting, and must still
-  redirect even if recording fails (never break the redirect for analytics).
+- `app/workouts.js`:
+  - `startWorkout({ notes, routineId })` → new workout, `startedAt` now,
+    `finishedAt: null`
+  - `finishWorkout(id)` → sets `finishedAt`; `409` if already finished
+  - `getWorkout(id)` → workout **with its sets embedded** (empty array for now;
+    T4 fills this in)
+  - `listWorkouts({ limit = 20, offset = 0 })` → newest first, plus a `total`
+  - `deleteWorkout(id)` → also deletes that workout's sets (no orphans)
 - Endpoints:
-  - `GET /api/links/:code/stats` → `200` the stats object, `404` if unknown
-  - `GET /api/stats/top?limit=n` → `200` `{ links: [...] }`
-- Truncate stored user-agent strings to 200 chars. Never store a full IP —
-  store only the first two octets (e.g. `203.0.x.x`) for privacy.
+  - `POST /api/workouts` → 201
+  - `GET /api/workouts` → `{ workouts, total }`
+  - `GET /api/workouts/:id` → 200 / 404
+  - `POST /api/workouts/:id/finish` → 200 / 404 / 409
+  - `DELETE /api/workouts/:id` → 204 / 404
+  - `GET /api/workouts/active` → the unfinished workout, or `null`
+- Only **one** workout may be unfinished at a time: starting another returns
+  `409` `{ "error": "A workout is already in progress" }`.
 
-**Test** — `app/tests/analytics.test.js`: create a link, hit `GET /:code` three
-times, then assert `stats.total === 3` and that `byDay` has today's date.
-
----
-
-### T6: Expiry & click limits
-**STATUS: TODO**
-
-Links that die on schedule.
-
-**Requirements**
-
-- `app/expiry.js`:
-  - `isExpired(link)` — true if `expiresAt` is in the past, or `maxClicks` is
-    set and `clicks >= maxClicks`
-  - `pruneExpired()` — delete all expired links, return the number removed
-- `POST /api/links` accepts optional `expiresAt` (ISO date string) and
-  `maxClicks` (positive integer); validate both, `400` on malformed values.
-- `GET /:code` on an expired link → `410 Gone` with
-  `{ "error": "This link has expired" }` (410, not 404 — the distinction
-  matters to callers).
-- `POST /api/admin/prune` → `200` `{ "removed": n }`
-- Run `pruneExpired()` once on startup.
-
-**Test** — `app/tests/expiry.test.js`: create a link with `maxClicks: 1`, visit
-it once successfully, then assert the second visit returns `410`.
+**Test** — `app/tests/workouts.test.js`: start a workout, confirm it appears at
+`/api/workouts/active`, starting a second returns 409, finishing it returns 200,
+and `active` then returns null.
 
 ---
 
-### T7: API keys
+### T4: Logging sets
 **STATUS: TODO**
 
-Protect the write endpoints.
+The core interaction — this is what you actually use at the rack.
 
 **Requirements**
 
-- `app/auth.js`:
-  - `createKey(label)` → `{ key, label, createdAt }` where `key` is 32 hex chars
-    from `crypto.randomBytes`
-  - `verifyKey(key)` → the key record or `null`; **use
-    `crypto.timingSafeEqual`** for the comparison, not `===`
-  - `requireKey(req, res)` → `true` if the request carries a valid
-    `X-API-Key` header, otherwise sends `401`
-    `{ "error": "Valid X-API-Key header required" }` and returns `false`
-- Protect `POST /api/links`, `DELETE /api/links/:code`, and
-  `POST /api/admin/prune`. **Leave `GET /:code`, `GET /api/health` and the
-  stats endpoints public** — the redirect must never require a key.
-- `POST /api/keys` creates a key. Bootstrap: if no keys exist yet, allow the
-  first call unauthenticated; afterwards it requires an existing key.
-- Never log a full key. Log at most the first 8 characters.
+- `app/sets.js`:
+  - `addSet({ workoutId, exerciseId, weightKg, reps, rpe, isWarmup })`
+    - validates the workout exists and is **not finished** (`409` if it is)
+    - validates the exercise exists (`404` if not)
+    - `weightKg` ≥ 0 and ≤ 1000; `reps` an integer 1–100; `rpe` null or 1–10
+    - `isWarmup` defaults to `false`
+  - `updateSet(id, patch)` — same validation, only the mutable fields
+  - `deleteSet(id)` → `true` / `false`
+  - `getSets(workoutId)` → that workout's sets in logging order
+- Endpoints:
+  - `POST /api/workouts/:id/sets` → 201
+  - `GET /api/workouts/:id/sets` → `{ sets, total }`
+  - `PUT /api/sets/:id` → 200 / 404
+  - `DELETE /api/sets/:id` → 204 / 404
+- Update `getWorkout` so its embedded `sets` are now populated, and add a
+  computed `totalVolumeKg` = Σ(`weightKg` × `reps`) over **non-warmup** sets.
 
-**Test** — `app/tests/auth.test.js`: create a key, assert `POST /api/links`
-without a key returns `401`, and with the key returns `201`. Confirm
-`GET /api/health` still works with no key.
+**Test** — `app/tests/sets.test.js`: start a workout, add two sets
+(60kg×5, 70kg×5), assert `totalVolumeKg === 650`, assert a warm-up set does not
+change it, and assert `reps: 0` returns 400.
 
 ---
 
-### T8: Rate limiting
+### T5: Personal records & 1RM
 **STATUS: TODO**
 
-Cheap in-memory abuse protection.
+Turn raw sets into progress you can see.
 
 **Requirements**
 
-- `app/ratelimit.js`:
-  - `check(identifier, { limit, windowMs })` →
-    `{ allowed: boolean, remaining: number, resetAt: <ms epoch> }`
-  - sliding window kept in memory (a `Map`); evict expired entries so it can't
-    grow without bound
-  - `reset(identifier)` clears one entry (tests need this)
-- Apply to all `/api/*` routes: 100 requests per minute, keyed by API key when
-  present, otherwise by remote address.
-- Over the limit → `429` `{ "error": "Rate limit exceeded" }`.
-- Every `/api/*` response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining`
-  and `X-RateLimit-Reset` headers.
-- The redirect route `GET /:code` is **not** rate limited.
+- `app/records.js`:
+  - `estimate1RM(weightKg, reps)` — **Epley**: `w × (1 + reps/30)`, and exactly
+    `w` when `reps === 1`. Round to 1 decimal.
+  - `getPersonalRecords(exerciseId)` →
+    `{ maxWeight: {…set}, maxReps: {…set}, best1RM: { value, set }, maxVolume }`
+    computed over non-warmup sets only
+  - `getExerciseHistory(exerciseId, { limit })` → per-workout summary
+    `[{ workoutId, date, sets, topSetKg, best1RM, volumeKg }]`, newest first
+- Endpoints:
+  - `GET /api/exercises/:id/records` → 200, or `404` if the exercise is unknown
+  - `GET /api/exercises/:id/history?limit=n`
+  - `GET /api/records` → best lift per exercise that has any sets
+- A PR only counts from **non-warmup** sets. An exercise with no sets returns
+  nulls rather than an error.
 
-**Test** — `app/tests/ratelimit.test.js`: use `t.appRequire('../ratelimit')` to
-test the module directly — call `check` past its limit with a small custom
-window and assert `allowed` flips to `false`, then that `reset()` restores it.
-Also assert `X-RateLimit-Remaining` is present on a normal API response.
+**Test** — `app/tests/records.test.js`: assert `estimate1RM(100, 1) === 100` and
+`estimate1RM(100, 10) === 133.3` via `t.appRequire('../records')`; log
+100kg×5 then 110kg×3 and assert `maxWeight` is the 110kg set.
 
 ---
 
-### T9: Search, filter & pagination
+### T6: Progressive overload suggestions
 **STATUS: TODO**
 
-Make a large link list usable.
+Tell the user what to lift next — the feature that makes this more than a diary.
 
 **Requirements**
 
-- `app/search.js`:
-  - `searchLinks(query, opts)` — case-insensitive substring match over `url`
-    and `code`; `opts` supports `{ createdAfter, createdBefore, minClicks }`
-  - `paginate(items, { page = 1, perPage = 20 })` →
-    `{ items, page, perPage, total, totalPages }`
-- `GET /api/links` gains `?q=`, `?page=`, `?perPage=` (max 100),
-  `?sort=` (`created` | `clicks`) and `?order=` (`asc` | `desc`).
-- Response becomes
-  `{ links: [...], page, perPage, total, totalPages }` —
-  **keep `links` and `total` as-is** so T3's test still passes.
-- Invalid pagination params (`page=0`, `perPage=abc`) → `400`.
+- `app/progression.js`:
+  - `suggestNextWeight(exerciseId)` → `{ suggestedKg, reason, basedOn }`
+    - no history → `null` with `reason: 'no history'`
+    - last session hit **all** target reps at RPE ≤ 8 → add an increment
+    - otherwise → repeat the same weight, `reason: 'repeat'`
+    - increments: barbell `2.5kg`, dumbbell `2kg`, machine/cable `5kg`,
+      bodyweight `0` (suggest more reps instead)
+  - `getPlateBreakdown(targetKg, { barKg = 20, available })` →
+    plates per side, e.g. `120kg → [25, 25, 5]`; return the closest achievable
+    weight plus a `remainderKg` when it cannot be made exactly
+- Endpoints:
+  - `GET /api/exercises/:id/suggestion`
+  - `GET /api/plates?target=100&bar=20`
 
-**Test** — `app/tests/search.test.js`: create three links with a shared unique
-token in their URLs, search for that token, and assert exactly three results
-and correct `total`/`totalPages`.
+**Test** — `app/tests/progression.test.js`: `getPlateBreakdown(120)` returns
+per-side plates summing to 50kg; a target below bar weight returns an empty
+plate list with a clear reason.
 
 ---
 
-### T10: Bulk operations & export
+### T7: Routines & templates
 **STATUS: TODO**
 
-Get data in and out.
+Stop rebuilding the same session by hand every week.
 
 **Requirements**
 
-- `app/export.js`:
-  - `toJson(links)` → pretty-printed JSON string
-  - `toCsv(links)` → CSV with header row `code,url,clicks,createdAt,expiresAt`,
-    correctly quoting fields containing commas or quotes
-- Endpoints (all require an API key):
-  - `POST /api/links/bulk` body `{ urls: [...] }` (max 100) → `201`
-    `{ created: [...], failed: [{ url, error }] }` — partial success is fine
-    and must not abort the whole batch
-  - `GET /api/export?format=json|csv` → the file with correct
-    `Content-Type` and a `Content-Disposition: attachment` header
-  - `DELETE /api/links/bulk` body `{ codes: [...] }` → `{ deleted: n }`
+- `app/routines.js`:
+  - `seedRoutines()` — idempotent; ship at least "Push", "Pull", "Legs" and
+    "StrongLifts 5×5" built from seeded exercise ids
+  - `listRoutines()`, `createRoutine({ name, exercises })` (validate every
+    `exerciseId` exists; reject an empty list with 400)
+  - `startFromRoutine(routineId)` — starts a workout with `routineId` set and
+    returns it together with the planned exercises
+  - `deleteRoutine(id)` — built-in routines cannot be deleted (`403`)
+- Endpoints: `GET/POST /api/routines`, `GET /api/routines/:id`,
+  `DELETE /api/routines/:id`, `POST /api/routines/:id/start`
+- `GET /api/workouts/:id` gains `routineProgress`:
+  `[{ exerciseId, name, targetSets, completedSets }]` when the workout came
+  from a routine.
 
-**Test** — `app/tests/export.test.js`: bulk-create two valid URLs plus one
-invalid one, assert `created.length === 2` and `failed.length === 1`, then
-`GET /api/export?format=csv` and assert the response starts with the header row.
+**Test** — `app/tests/routines.test.js`: seeded routines are non-empty; starting
+from a routine creates a workout whose `routineId` matches and whose
+`routineProgress` lists the planned exercises with `completedSets: 0`.
+
+---
+
+### T8: Statistics & charts data
+**STATUS: TODO**
+
+The numbers behind the graphs.
+
+**Requirements**
+
+- `app/stats.js`:
+  - `volumeByWeek({ weeks = 12 })` → `[{ weekStart, volumeKg, workouts, sets }]`,
+    ISO weeks starting Monday, **including zero-volume weeks** so a chart has no
+    gaps
+  - `muscleGroupBalance({ days = 30 })` → volume and set count per muscle group,
+    plus each group's percentage of the total
+  - `workoutFrequency({ days = 90 })` → `{ total, perWeekAvg, byWeekday }`
+  - `getSummary()` → `{ totalWorkouts, totalSets, totalVolumeKg, favouriteExercise,
+    last7Days: { workouts, volumeKg } }`
+- Endpoints: `GET /api/stats/volume`, `/api/stats/balance`,
+  `/api/stats/frequency`, `/api/stats/summary`
+- All of these must return valid, empty-but-well-formed data on a brand-new
+  install (no crashes, no `NaN`, no `null` where a number is expected).
+
+**Test** — `app/tests/stats.test.js`: on a fresh-ish DB call `/api/stats/summary`
+and assert every numeric field is a number and not `NaN`; log one workout with
+known sets and assert `totalVolumeKg` increases by exactly the expected amount.
+
+---
+
+### T9: Streaks & body-weight log
+**STATUS: TODO**
+
+Consistency tracking and the other number people care about.
+
+**Requirements**
+
+- `app/streaks.js`:
+  - `getStreak()` → `{ current, longest, lastWorkoutDate }` in **days**, where a
+    streak means at least one finished workout in a calendar week — define it as
+    consecutive *weeks* with ≥1 workout and document the choice in the file
+  - `getCalendar({ year, month })` → `[{ date, workouts, volumeKg }]` for every
+    day of that month, including empty days
+  - `logBodyWeight({ date, weightKg })` — one entry per date, later writes
+    overwrite; validate 20–500 kg
+  - `getBodyWeightHistory({ days = 90 })` → ascending by date, with a
+    7-day moving average on each point
+- Endpoints: `GET /api/streak`, `GET /api/calendar?year=&month=`,
+  `GET/POST /api/bodyweight`
+- An invalid month (`0`, `13`, `abc`) returns `400`.
+
+**Test** — `app/tests/streaks.test.js`: log body weight twice for the same date
+and assert only one entry exists with the later value; assert
+`/api/calendar?year=2026&month=1` returns 31 entries.
+
+---
+
+### T10: Export & import
+**STATUS: TODO**
+
+It is your data — you must be able to get it out and back in.
+
+**Requirements**
+
+- `app/transfer.js`:
+  - `exportAll()` → `{ version: 1, exportedAt, exercises, workouts, sets,
+    routines, bodyweight }`
+  - `importAll(payload, { mode })` where `mode` is `'merge'` or `'replace'`
+    - validates `version`, rejects unknown versions with `400`
+    - `merge` keeps existing ids and skips duplicates; `replace` wipes first
+    - returns `{ imported: { exercises: n, workouts: n, sets: n, … }, skipped: n }`
+    - **must be atomic**: if validation fails partway, nothing is written
+  - `toCsv(sets)` → header `date,exercise,weightKg,reps,rpe,isWarmup`, quoting
+    any field containing a comma or quote
+- Endpoints:
+  - `GET /api/export` → JSON download (`Content-Disposition: attachment`)
+  - `GET /api/export.csv` → the CSV of all sets
+  - `POST /api/import?mode=merge|replace`
+
+**Test** — `app/tests/transfer.test.js`: export, then import the same payload in
+`merge` mode and assert nothing is duplicated (counts unchanged); assert
+`/api/export.csv` starts with the exact header row.
 
 ---
 
 ### T11: Web dashboard
 **STATUS: TODO**
 
-A usable front end, no build step.
+A usable front end, no build step, works on a phone.
 
 **Requirements**
 
-- `app/public/index.html` — single self-contained page (inline CSS + JS, no
-  CDN links, no frameworks):
-  - form to shorten a URL, with optional alias / expiry / max-clicks
-  - result shows the short URL with a copy button
-  - table of existing links: code, target, clicks, created, delete button
-  - search box wired to `?q=`, plus pagination controls
-  - click a row to see its stats
-  - stores the API key in `localStorage`, sends it as `X-API-Key`
-  - shows friendly error messages, never a raw stack trace
-- Serve it from `GET /` in `server.js`, and static files from `app/public/`.
-  Guard against path traversal (`../`) when serving static files.
-- Must work with JavaScript from the same origin only — no external requests.
+- `app/public/index.html` — one self-contained page (inline CSS + JS, no CDN, no
+  framework):
+  - **Log tab**: start/finish a workout, pick an exercise, big touch-friendly
+    weight/reps inputs, "add set", and the suggested next weight from T6
+  - a rest timer that counts up after each logged set
+  - **History tab**: recent workouts, expandable to show their sets
+  - **Stats tab**: volume-by-week bar chart and muscle-group balance drawn with
+    inline SVG (no chart library), plus the summary numbers
+  - **Body tab**: body-weight entry and its trend line
+  - mobile-first layout, ≥44px tap targets, dark theme
+  - friendly error messages — never a raw stack trace
+- Serve `GET /` and static files from `app/public/`, guarding against path
+  traversal (`../`).
 
-**Test** — `app/tests/ui.test.js`: `GET /` returns 200, `Content-Type` contains
-`text/html`, and the body contains `<form`. Assert `GET /../server.js` does
-**not** return the source file.
+**Test** — `app/tests/ui.test.js`: `GET /` returns 200 with `text/html` and a
+body containing `<form` or `id="log"`; assert `GET /../server.js` does **not**
+return source.
 
 ---
 
@@ -402,29 +452,23 @@ Make it operable.
 **Requirements**
 
 - `app/metrics.js`:
-  - `increment(name, by = 1)` and `snapshot()` → all counters plus
+  - `increment(name, by = 1)` and `snapshot()` → counters plus
     `{ uptime, memoryMb, startedAt }`
-  - counters: `http_requests_total`, `redirects_total`, `errors_total`,
-    `links_created_total`, `rate_limited_total`
-- `GET /metrics` → `200` plain-text Prometheus exposition format
-  (`# HELP`, `# TYPE`, then `name value` lines). No API key required.
-- `GET /api/health` extends to
-  `{ status, uptime, version, links: <count>, checks: { storage: 'ok' } }` —
-  **keep the existing `status` and `uptime` fields** so T1's test still passes.
-- Structured request logging to stdout: one JSON line per request with
-  `method`, `path`, `status`, `durationMs`. Never log API keys or full IPs.
+  - counters: `http_requests_total`, `errors_total`, `sets_logged_total`,
+    `workouts_started_total`, `workouts_finished_total`
+- `GET /metrics` → `200` plain-text Prometheus format (`# HELP`, `# TYPE`, then
+  `name value`).
+- `GET /api/health` extends to `{ status, uptime, version, checks: { storage: 'ok' },
+  counts: { exercises, workouts, sets } }` — **keep the existing `status` and
+  `uptime` fields** so T1's test still passes.
+- One JSON log line per request to stdout: `method`, `path`, `status`,
+  `durationMs`. Never log request bodies.
 
-**Test** — `app/tests/metrics.test.js`: hit `/api/health`, then `GET /metrics`
-and assert the body contains `http_requests_total` and that its value is a
-number greater than zero.
+**Test** — `app/tests/metrics.test.js`: log a set, then `GET /metrics` and assert
+the body contains `sets_logged_total` with a numeric value ≥ 1.
 
 ---
 
 ## Activity Log
 
 <!-- Agents append one line here per completed task -->
-- 2026-07-25 T1 DONE — HTTP server & router foundation: `app/package.json` (linkly, stdlib-only), `app/router.js` (addRoute/route/sendJson, params + query, 404/500 JSON), `app/server.js` (createServer, 1 MB body cap → 413, JSON parsing → 400, `/api/health`, PORT||3000), `app/tests/health.test.js`. Smoke suite: 1 passed, 0 failed.
-- 2026-07-25 T2 DONE — JSON storage layer: `app/store.js` (`init`/`read`/`write` + `clearCache`/`dataDir`/`filePath`/`names`, atomic `.tmp`→`renameSync`, mtime-aware in-memory cache, never throws on missing/corrupt files, defaults links/clicks/keys → `{}`), `app/data/.gitkeep`, `store.init()` wired into `server.js`, `app/data/*.json` gitignored, `app/tests/store.test.js`. Smoke suite: 2 passed, 0 failed.
-- 2026-07-25 T3 DONE — Create links & redirect: `app/links.js` (`createLink`/`getLink`/`listLinks`/`deleteLink` + `generateCode`/`RESERVED_CODES`/`isReserved`/`isReservedCode`/`CODE_LENGTH`; 7-char `[A-Za-z0-9]` codes via `crypto.randomBytes` with collision+reserved retry; links persisted as `{ [code]: {code,url,createdAt,clicks} }` via store). Endpoints in `server.js`: `POST /api/links`→201 `{code,url,shortUrl,createdAt}` (Host-derived shortUrl), `GET /api/links`→`{links,total}`, `GET /api/links/:code`→200/404, `DELETE /api/links/:code`→204/404, `GET /:code`→302 Location (reserved codes `api`/`health`/`metrics` never resolve→404). `app/tests/links.test.js`. Smoke suite: 3 passed, 0 failed.
-- 2026-07-25 T4 DONE — URL validation & custom aliases: added `app/validate.js` (`isValidUrl` using `new URL()` with http/https-only schemes and usable hostnames, `normalizeUrl` trimming/defaulting to https/lowercasing hosts/stripping bare-host slash, `isValidAlias` enforcing 3–32 `[A-Za-z0-9_-]` and reserved-word rejection via links). Wired `POST /api/links` to reject invalid URLs/aliases before creation, store normalized URLs, preserve duplicate-alias 409s, and allow valid aliases as codes. Added `app/tests/validate.test.js`. Smoke suite: 4 passed, 0 failed.
-- 2026-07-25 T5 DONE — Click analytics: `app/analytics.js` (`recordClick`, `getStats`, `getTopLinks`, IP masking, UA truncation), stats endpoints (`GET /api/links/:code/stats`, `GET /api/stats/top`), click recording on redirect (`GET /:code`), `app/tests/analytics.test.js`. Smoke suite: 5 passed, 0 failed.
