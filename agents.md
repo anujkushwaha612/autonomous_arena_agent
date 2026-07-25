@@ -103,7 +103,7 @@ Rules for tests:
 ## Task list
 
 ### T1: HTTP server & router foundation
-**STATUS: TODO**
+**STATUS: DONE**
 
 The skeleton everything else plugs into.
 
@@ -423,3 +423,4 @@ number greater than zero.
 ## Activity Log
 
 <!-- Agents append one line here per completed task -->
+- 2026-07-25 T1 DONE — HTTP server & router foundation: `app/package.json` (linkly, stdlib-only), `app/router.js` (addRoute/route/sendJson, params + query, 404/500 JSON), `app/server.js` (createServer, 1 MB body cap → 413, JSON parsing → 400, `/api/health`, PORT||3000), `app/tests/health.test.js`. Smoke suite: 1 passed, 0 failed.

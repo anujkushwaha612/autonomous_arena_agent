@@ -1,0 +1,10 @@
+{
+  "name": "linkly",
+  "version": "1.0.0",
+  "description": "Linkly — a URL shortener & analytics API (Node.js stdlib only)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {}
+}
