@@ -276,7 +276,7 @@ Committed test files:
 ## Task list
 
 ### T1: Server skeleton, static hosting & build
-**STATUS: TODO**
+**STATUS: DONE**
 
 Nothing else can start without this.
 
@@ -890,3 +890,4 @@ One revision, made before T1 started, after an audit for missing features:
 ## Activity Log
 
 <!-- Agents append one line here per completed task -->
+- 2026-07-25 T1 completed: server skeleton, build, health endpoint, basic static hosting.

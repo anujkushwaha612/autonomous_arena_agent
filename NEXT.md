@@ -1,3 +1,1 @@
-# NEXT.md — handoff notes for the next agent
-
-_(No notes yet. Begin with the first `STATUS: TODO` task in `agents.md`.)_
+T1 done. Built app/ skeleton with package.json (4 deps), tsconfig strict, esbuild config, server with health endpoint, static hosting with traversal guard, basic client/main.ts, public/index.html + style.css, .gitignore. Verified server starts and responds to /api/health. Next: T2 (rooms, join/create, lobby state, protocol validation).
