@@ -6,8 +6,9 @@ import os
 import sqlite3
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, NoReturn
+from urllib.parse import parse_qs
 
-from ledgerly import accounts
+from ledgerly import accounts, transactions
 from ledgerly.api import (
     APIError,
     APIResponse,
@@ -20,6 +21,12 @@ from ledgerly.db import init_db
 
 conn: sqlite3.Connection | None = None
 router = Router()
+
+# Allowed filter / pagination parameters for list endpoints.
+_TRANSACTION_LIST_QUERY = {"start", "end", "limit", "offset"}
+
+# Maximum list page size enforced at the boundary; matches the service layer.
+_MAX_LIST_LIMIT = transactions.MAX_LIST_LIMIT
 
 
 def _connection() -> sqlite3.Connection:
@@ -34,6 +41,12 @@ def _body_object(body: Any) -> dict[str, Any]:
     return body
 
 
+def _parse_path(path: str) -> tuple[str, dict[str, list[str]]]:
+    """Split the request path into ``(route, query_params)``."""
+    route, _, query = path.partition("?")
+    return route, parse_qs(query, keep_blank_values=False)
+
+
 def _account_id(params: dict[str, str]) -> int:
     try:
         account_id = int(params["id"])
@@ -44,6 +57,16 @@ def _account_id(params: dict[str, str]) -> int:
     return account_id
 
 
+def _transaction_id(params: dict[str, str]) -> int:
+    try:
+        transaction_id = int(params["id"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise APIError(404, "transaction_not_found", "Transaction was not found") from exc
+    if transaction_id <= 0:
+        raise APIError(404, "transaction_not_found", "Transaction was not found")
+    return transaction_id
+
+
 def _raise_account_error(exc: accounts.AccountError) -> NoReturn:
     if isinstance(exc, accounts.AccountNotFoundError):
         raise APIError(404, "account_not_found", str(exc)) from exc
@@ -52,6 +75,18 @@ def _raise_account_error(exc: accounts.AccountError) -> NoReturn:
     if isinstance(exc, accounts.InvalidAccountKindError):
         raise APIError(400, "invalid_kind", str(exc)) from exc
     raise APIError(400, "invalid_account", str(exc)) from exc
+
+
+def _raise_transaction_error(exc: transactions.TransactionError) -> NoReturn:
+    if isinstance(exc, transactions.TransactionNotFoundError):
+        raise APIError(404, "transaction_not_found", str(exc)) from exc
+    if isinstance(exc, transactions.AccountMissingError):
+        raise APIError(404, "account_not_found", str(exc)) from exc
+    if isinstance(exc, transactions.InvalidDateError):
+        raise APIError(400, "invalid_date", str(exc)) from exc
+    if isinstance(exc, transactions.InvalidAmountError):
+        raise APIError(400, "invalid_amount", str(exc)) from exc
+    raise APIError(400, "invalid_transaction", str(exc)) from exc
 
 
 def _health(_params: dict[str, str], _body: Any) -> dict[str, str]:
@@ -134,10 +169,198 @@ def _archive_account(params: dict[str, str], _body: Any) -> dict[str, Any]:
     return account.to_dict()
 
 
+def _list_transactions(params: dict[str, str], _body: Any) -> dict[str, Any]:
+    """GET /api/v1/accounts/:id/transactions with optional start/end/limit/offset."""
+    full_path = _current_path[0] if _current_path else "/"
+    _, query = _parse_path(full_path)
+    account_id = _account_id(params)
+    filters = _parse_transaction_list_query(query)
+    try:
+        rows, total = transactions.list_for_account(
+            _connection(),
+            account_id,
+            start=filters.get("start"),
+            end=filters.get("end"),
+            limit=filters["limit"],
+            offset=filters["offset"],
+        )
+    except transactions.TransactionError as exc:
+        _raise_transaction_error(exc)
+    return {
+        "data": [transaction.to_dict() for transaction in rows],
+        "total": total,
+        "limit": filters["limit"],
+        "offset": filters["offset"],
+    }
+
+
+def _create_transaction(params: dict[str, str], body: Any) -> APIResponse:
+    """POST /api/v1/accounts/:id/transactions."""
+    payload = _body_object(body)
+    allowed = {
+        "date",
+        "description",
+        "amount",
+        "amount_cents",
+        "category_id",
+        "is_transfer",
+        "external_id",
+    }
+    _reject_unknown_fields(payload, allowed)
+    if "amount" in payload and "amount_cents" in payload:
+        raise APIError(
+            400,
+            "invalid_request",
+            "provide only one of amount or amount_cents",
+        )
+    for field in ("date", "description"):
+        if field not in payload or payload[field] in (None, ""):
+            raise APIError(400, "invalid_request", f"{field} is required")
+    if "amount" not in payload and "amount_cents" not in payload:
+        raise APIError(400, "invalid_request", "amount is required")
+
+    amount: Any = payload.get("amount", payload.get("amount_cents"))
+    category_id = payload.get("category_id")
+    is_transfer = payload.get("is_transfer", False)
+
+    try:
+        transaction = transactions.add(
+            _connection(),
+            _account_id(params),
+            date=payload["date"],
+            description=payload["description"],
+            amount=amount,
+            category_id=category_id,
+            is_transfer=bool(is_transfer) if is_transfer is not None else False,
+            external_id=payload.get("external_id"),
+        )
+    except transactions.TransactionError as exc:
+        _raise_transaction_error(exc)
+    return APIResponse(201, transaction.to_dict())
+
+
+def _get_transaction(params: dict[str, str], _body: Any) -> dict[str, Any]:
+    transaction = transactions.get(_connection(), _transaction_id(params))
+    if transaction is None:
+        raise APIError(404, "transaction_not_found", "Transaction was not found")
+    return transaction.to_dict()
+
+
+def _update_transaction(params: dict[str, str], body: Any) -> dict[str, Any]:
+    payload = _body_object(body)
+    allowed = {
+        "date",
+        "description",
+        "amount",
+        "amount_cents",
+        "category_id",
+        "is_transfer",
+        "external_id",
+    }
+    _reject_unknown_fields(payload, allowed)
+    if "amount" in payload and "amount_cents" in payload:
+        raise APIError(
+            400,
+            "invalid_request",
+            "provide only one of amount or amount_cents",
+        )
+    if not payload:
+        raise APIError(400, "invalid_request", "request body is empty")
+    for field, value in payload.items():
+        if value is None:
+            raise APIError(400, "invalid_request", f"{field} cannot be null")
+
+    amount: Any = None
+    if "amount" in payload:
+        amount = payload["amount"]
+    elif "amount_cents" in payload:
+        amount = payload["amount_cents"]
+
+    is_transfer = payload.get("is_transfer")
+
+    try:
+        transaction = transactions.update(
+            _connection(),
+            _transaction_id(params),
+            date=payload.get("date"),
+            description=payload.get("description"),
+            amount=amount,
+            category_id=payload.get("category_id"),
+            is_transfer=bool(is_transfer) if is_transfer is not None else None,
+            external_id=payload.get("external_id"),
+        )
+    except transactions.TransactionError as exc:
+        _raise_transaction_error(exc)
+    return transaction.to_dict()
+
+
+def _delete_transaction(params: dict[str, str], _body: Any) -> APIResponse:
+    try:
+        transactions.delete(_connection(), _transaction_id(params))
+    except transactions.TransactionError as exc:
+        _raise_transaction_error(exc)
+    return APIResponse(204, {})
+
+
+def _account_balance(params: dict[str, str], _body: Any) -> dict[str, Any]:
+    try:
+        cents = transactions.balance(_connection(), _account_id(params))
+    except transactions.TransactionError as exc:
+        _raise_transaction_error(exc)
+    return {"account_id": _account_id(params), "balance_cents": cents}
+
+
 def _reject_unknown_fields(payload: dict[str, Any], allowed: set[str]) -> None:
     unknown = sorted(set(payload) - allowed)
     if unknown:
         raise APIError(400, "invalid_request", f"unknown field(s): {', '.join(unknown)}")
+
+
+def _parse_transaction_list_query(query: dict[str, list[str]]) -> dict[str, Any]:
+    unknown = sorted(set(query) - _TRANSACTION_LIST_QUERY)
+    if unknown:
+        raise APIError(
+            400,
+            "invalid_request",
+            f"unknown query parameter(s): {', '.join(unknown)}",
+        )
+    result: dict[str, Any] = {"limit": transactions.DEFAULT_LIST_LIMIT, "offset": 0}
+    if "start" in query:
+        result["start"] = _query_single(query, "start")
+    if "end" in query:
+        result["end"] = _query_single(query, "end")
+    if "limit" in query:
+        result["limit"] = _parse_int_param(query, "limit", minimum=1, maximum=_MAX_LIST_LIMIT)
+    if "offset" in query:
+        result["offset"] = _parse_int_param(query, "offset", minimum=0)
+    return result
+
+
+def _query_single(query: dict[str, list[str]], name: str) -> str:
+    values = query.get(name) or []
+    if not values:
+        raise APIError(400, "invalid_request", f"{name} cannot be empty")
+    return values[0]
+
+
+def _parse_int_param(
+    query: dict[str, list[str]], name: str, *, minimum: int, maximum: int | None = None
+) -> int:
+    text = _query_single(query, name)
+    try:
+        value = int(text)
+    except ValueError as exc:
+        raise APIError(400, "invalid_request", f"{name} must be an integer") from exc
+    if value < minimum:
+        raise APIError(400, "invalid_request", f"{name} must be >= {minimum}")
+    if maximum is not None and value > maximum:
+        raise APIError(400, "invalid_request", f"{name} must be <= {maximum}")
+    return value
+
+
+# Holds the current request's full path so query string parsing is available
+# inside route handlers that take only ``(params, body)``. Set by Handler.
+_current_path: list[str] = []
 
 
 router.add_route("GET", "/api/v1/health", _health)
@@ -146,6 +369,12 @@ router.add_route("POST", "/api/v1/accounts", _create_account)
 router.add_route("GET", "/api/v1/accounts/:id", _get_account)
 router.add_route("PATCH", "/api/v1/accounts/:id", _update_account)
 router.add_route("POST", "/api/v1/accounts/:id/archive", _archive_account)
+router.add_route("GET", "/api/v1/accounts/:id/transactions", _list_transactions)
+router.add_route("POST", "/api/v1/accounts/:id/transactions", _create_transaction)
+router.add_route("GET", "/api/v1/accounts/:id/balance", _account_balance)
+router.add_route("GET", "/api/v1/transactions/:id", _get_transaction)
+router.add_route("PATCH", "/api/v1/transactions/:id", _update_transaction)
+router.add_route("DELETE", "/api/v1/transactions/:id", _delete_transaction)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -158,9 +387,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_PATCH(self) -> None:
         self._respond()
 
+    def do_DELETE(self) -> None:
+        self._respond()
+
     def _respond(self) -> None:
         body: Any = None
-        if self.command in {"POST", "PATCH", "PUT"}:
+        if self.command in {"POST", "PATCH", "PUT", "DELETE"}:
             try:
                 body = self._read_json_body()
             except PayloadTooLargeError as exc:
@@ -169,11 +401,16 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 self._send_json(400, error("invalid_json", str(exc)))
                 return
-        status, payload = router.dispatch(
-            self.command,
-            self.path.split("?", 1)[0],
-            body,
-        )
+        route = self.path.split("?", 1)[0]
+        _current_path.clear()
+        _current_path.append(self.path)
+        try:
+            status, payload = router.dispatch(self.command, route, body)
+        finally:
+            _current_path.clear()
+        if status == 204:
+            self._send_empty(status)
+            return
         self._send_json(status, payload)
 
     def _read_json_body(self) -> Any:
@@ -195,6 +432,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _send_empty(self, status: int) -> None:
+        self.send_response(status)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def log_message(self, format: str, *args: object) -> None:
         return
