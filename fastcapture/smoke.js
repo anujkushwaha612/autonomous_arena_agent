@@ -29,6 +29,11 @@ const PORT = Number(process.env.SMOKE_PORT || 3000);
 const BOOT_TIMEOUT_MS = Number(process.env.SMOKE_BOOT_MS || 120000);
 const TEST_TIMEOUT_MS = Number(process.env.SMOKE_TEST_MS || 20000);
 const INSTALL_TIMEOUT_MS = Number(process.env.SMOKE_INSTALL_MS || 300000);
+// Which files count as tests. Override for other conventions, e.g.
+// SMOKE_TEST_PATTERN='^test_.*\\.py$'
+const TEST_PATTERN = new RegExp(
+  process.env.SMOKE_TEST_PATTERN || '\\.test\\.(js|mjs|cjs|ts|mts)$'
+);
 // Shared, persistent cache for any embedded-database binary the product uses.
 const MONGO_CACHE_DIR = path.join(REPO_ROOT, '.cache', 'mongodb-binaries');
 
@@ -312,7 +317,7 @@ async function main() {
 
   const files = fs
     .readdirSync(TEST_DIR)
-    .filter((f) => /\.test\.(js|mjs|cjs|ts|mts)$/.test(f))
+    .filter((f) => TEST_PATTERN.test(f))
     .sort();
   if (!files.length) {
     console.log('  ⚠️  no *.test.js files found — skipping.');
@@ -327,9 +332,20 @@ async function main() {
   const tsLoader = needsTsLoader(APP_DIR, files);
   if (tsLoader) {
     console.log(`  🔁 TypeScript project — re-running tests under ${tsLoader}`);
-    const args =
-      tsLoader === 'tsx' ? ['--import', 'tsx', __filename] : ['-r', 'ts-node/register', __filename];
-    const res = require('child_process').spawnSync(process.execPath, args, {
+    // Run through the project's own tsx/ts-node BINARY rather than guessing a
+    // --import/-r flag: the flag spelling changed between tsx majors and the
+    // wrong one fails with "Did you mean to import tsx/dist/loader.mjs?".
+    const binName = process.platform === 'win32' ? `${tsLoader}.cmd` : tsLoader;
+    const binPath = path.join(APP_DIR, 'node_modules', '.bin', binName);
+    const useBin = fs.existsSync(binPath);
+    const cmd = useBin ? binPath : process.execPath;
+    const args = useBin
+      ? [__filename]
+      : tsLoader === 'tsx'
+        ? ['--import', 'tsx', __filename]
+        : ['-r', 'ts-node/register', __filename];
+    const res = require('child_process').spawnSync(cmd, args, {
+      shell: process.platform === 'win32' && useBin,
       stdio: 'inherit',
       cwd: process.cwd(),
       env: {

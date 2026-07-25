@@ -114,7 +114,20 @@ module.exports = {
   // "there is no server to boot", and `||` would silently ignore it.
   smokeCmd: process.env.SMOKE_CMD ?? 'npm start',
   // Runtime smoke tests: boot the app and exercise it.
-  smokeEnabled: process.env.SMOKE !== 'off',
+  // Runtime verification. Three levels, so the pipeline suits any project type:
+  //   SMOKE=off            no runtime checks at all (docs, data, research)
+  //   SMOKE_CMD=""         no server to boot; just run the test files
+  //   VERIFY_CMD="..."     use YOUR toolchain instead (pytest, go test, cargo)
+  // Static checks (syntax, contracts, secrets) always run and are language-aware.
+  // OFF by default. Measured over a long run, the smoke harness destroyed more
+  // rounds through its own bugs (module loading, missing deps, TS loaders) than
+  // it caught real defects — while the static contract check caught the worst
+  // real bug (five missing exports) in 120ms with no harness at all.
+  // Agents verify in their sandbox; turn this on when you want the operator's
+  // machine to re-verify too (it is the only thing that catches OS-specific
+  // bugs, e.g. a POSIX-only npm script failing on Windows).
+  //   SMOKE=on node worker.js
+  smokeEnabled: process.env.SMOKE === 'on',
   verifyCmd: process.env.VERIFY_CMD || null,
   verifyTimeoutMs: Number(process.env.VERIFY_TIMEOUT_MS || 300000),
   // No SETTLE_TIME. A partial receipt cannot match the regex, so there is
