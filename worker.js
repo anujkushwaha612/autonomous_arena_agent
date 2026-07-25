@@ -244,8 +244,10 @@ async function main() {
           receipt: result.receipt,
           round,
           gate: CONFIG.gateEnabled
-            ? (repoRoot) =>
+            ? (repoRoot, baseline) =>
                 runGate(repoRoot, {
+                  smoke: CONFIG.smokeEnabled,
+                  baseline,
                   userCmd: CONFIG.verifyCmd,
                   timeoutMs: CONFIG.verifyTimeoutMs,
                   log: (m) => console.log(m),

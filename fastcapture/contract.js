@@ -72,10 +72,14 @@ function checkContracts(repoRoot, files) {
     const abs = path.join(repoRoot, rel);
     if (!fs.existsSync(abs)) continue;
 
-    let src;
-    try { src = stripNoise(fs.readFileSync(abs, 'utf8')); } catch { continue; }
+    let raw;
+    try { raw = fs.readFileSync(abs, 'utf8'); } catch { continue; }
+    // Parse requires from the RAW source (stripNoise blanks string literals,
+    // which would erase the module paths we need), but match property usage
+    // against the stripped source so comments/strings can't cause false hits.
+    const src = stripNoise(raw);
 
-    for (const { alias, rel: dep } of localRequires(src)) {
+    for (const { alias, rel: dep } of localRequires(raw)) {
       const depPath = resolveLocal(abs, dep);
       if (!depPath) continue;
 
@@ -94,13 +98,13 @@ function checkContracts(repoRoot, files) {
       for (const prop of usedProps(src, alias)) {
         if (!(prop in mod)) missing.push(prop);
       }
-      if (missing.length) {
-        errors.push(
-          `${rel} calls ${alias}.{${missing.join(', ')}} but ${path
-            .relative(repoRoot, depPath)
-            .split(path.sep)
-            .join('/')} does not export ${missing.length > 1 ? 'them' : 'it'}`
-        );
+      // One error PER missing property. Grouping them into a single string
+      // breaks baseline comparison: adding a new missing prop changes the whole
+      // message, so it won't match the baseline entry — and worse, a combined
+      // old+new message can mask a genuinely new bug.
+      const depRel = path.relative(repoRoot, depPath).split(path.sep).join('/');
+      for (const prop of missing.sort()) {
+        errors.push(`${rel} calls ${alias}.${prop}() but ${depRel} does not export it`);
       }
     }
   }

@@ -7,7 +7,9 @@
     "start": "node worker.js",
     "login": "node scripts/login.js",
     "ingest": "node fastcapture/ingest-server.js",
-    "verify": "node fastcapture/verify.js"
+    "verify": "node fastcapture/verify.js",
+    "status": "node scripts/status.js",
+    "smoke": "node fastcapture/smoke.js"
   },
   "dependencies": {
     "playwright": "^1.48.0"

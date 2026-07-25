@@ -16,12 +16,21 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { checkContracts } = require('./contract');
 
 /** Files touched by the staged/unstaged change, relative to repoRoot. */
 function changedFiles(repoRoot) {
   // -uall is essential: without it a brand-new directory collapses to a single
   // "?? app/" entry and every file inside it escapes the gate entirely.
-  const out = execSync('git status --porcelain -uall', { cwd: repoRoot }).toString();
+  let out;
+  try {
+    out = execSync('git status --porcelain -uall', {
+      cwd: repoRoot,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).toString();
+  } catch {
+    return []; // not a git repo / git unavailable — nothing to gate
+  }
   return out
     .split('\n')
     .filter(Boolean)
@@ -107,7 +116,47 @@ function runUserCommand(repoRoot, cmd, timeoutMs) {
 /**
  * @returns {{ok: boolean, errors: string[], checked: number}}
  */
-function runGate(repoRoot, { userCmd = null, timeoutMs = 300000, log = () => {} } = {}) {
+/**
+ * Problems that already exist at HEAD, before this patch was applied.
+ *
+ * Without this the gate blames each agent for debt it inherited: a good task
+ * gets rejected because an EARLIER task left a broken contract, and since the
+ * new agent can't fix what it didn't touch, the worker fails identically every
+ * round until it gives up. Only NEW problems should block a commit.
+ */
+function baselineErrors(repoRoot) {
+  const os = require('os');
+  let tmp = null;
+  try {
+    // Materialise HEAD into a temp dir and analyse THAT. Scanning the working
+    // tree would include the agent's new code, so a genuinely new problem would
+    // appear in the baseline and mask itself.
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-base-'));
+    execSync(`git archive HEAD | tar -x -C "${tmp}"`, {
+      cwd: repoRoot,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: true,
+    });
+    const walk = (dir, acc = []) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (e.name === 'node_modules' || e.name === '.git') continue;
+        const abs = path.join(dir, e.name);
+        if (e.isDirectory()) walk(abs, acc);
+        else if (/\.(js|cjs|mjs)$/.test(e.name)) {
+          acc.push(path.relative(tmp, abs).split(path.sep).join('/'));
+        }
+      }
+      return acc;
+    };
+    return new Set(checkContracts(tmp, walk(tmp)));
+  } catch {
+    return new Set();
+  } finally {
+    if (tmp) { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} }
+  }
+}
+
+function runGate(repoRoot, { userCmd = null, smoke = false, timeoutMs = 300000, log = () => {}, baseline = null } = {}) {
   const files = changedFiles(repoRoot);
   if (!files.length) return { ok: true, errors: [], checked: 0 };
 
@@ -116,6 +165,22 @@ function runGate(repoRoot, { userCmd = null, timeoutMs = 300000, log = () => {} 
     ...checkJson(repoRoot, files),
     ...checkJavaScript(repoRoot, files),
   ];
+
+  // Whole-program check: does every local module actually export what its
+  // callers use? Catches the "X is not a function" crash that syntax checking
+  // structurally cannot see.
+  if (!errors.length) {
+    const found = checkContracts(repoRoot, files);
+    errors.push(...(baseline ? found.filter((e) => !baseline.has(e)) : found));
+  }
+
+  // Runtime smoke tests — the only check that catches integration bugs.
+  if (!errors.length && smoke) {
+    const smokePath = path.join(__dirname, 'smoke.js');
+    if (fs.existsSync(smokePath)) {
+      errors.push(...runUserCommand(repoRoot, `node "${smokePath}"`, timeoutMs));
+    }
+  }
 
   // Only spend time on the heavy command if the cheap checks passed.
   if (!errors.length && userCmd) {
@@ -126,4 +191,4 @@ function runGate(repoRoot, { userCmd = null, timeoutMs = 300000, log = () => {} 
   return { ok: errors.length === 0, errors, checked: files.length };
 }
 
-module.exports = { runGate, changedFiles };
+module.exports = { runGate, changedFiles, baselineErrors };

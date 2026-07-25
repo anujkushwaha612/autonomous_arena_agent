@@ -14,3 +14,6 @@ fastcapture/drops/*
 package-lock.json
 app/package-lock.json
 .bin
+# transient patch files applied by the worker
+.drop-*
+run.log.jsonl

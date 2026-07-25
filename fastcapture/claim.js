@@ -93,17 +93,42 @@ function applyDrop({ repoRoot, dropDir, receipt, round, gate = null }) {
     );
   }
 
+  // Snapshot pre-existing problems BEFORE applying, so the gate only blames
+  // this agent for damage it actually caused (not debt from earlier rounds).
+  let baseline = null;
+  if (gate) {
+    try { baseline = require('./gate').baselineErrors(repoRoot); } catch {}
+  }
+
   const patchFile = path.join(repoRoot, `.drop-${receipt}.patch`);
   fs.writeFileSync(patchFile, buf);
 
   // Restore the tree to HEAD. Handles unmerged paths, which `git checkout --`
   // cannot. Safe because we verified the tree was clean above.
+  const patchRel = path.basename(patchFile);
+
+  // Keep the temp patch out of git ENTIRELY. Otherwise `git add -A` (run just
+  // before commit) stages it and it lands in HEAD; the `finally` unlink then
+  // leaves a phantom " D .drop-*.patch" dirtying the tree for every later round.
+  const excludeFile = path.join(repoRoot, '.git', 'info', 'exclude');
+  try {
+    fs.mkdirSync(path.dirname(excludeFile), { recursive: true });
+    const cur = fs.existsSync(excludeFile) ? fs.readFileSync(excludeFile, 'utf8') : '';
+    if (!cur.includes('.drop-*')) {
+      fs.writeFileSync(excludeFile, cur + (cur.endsWith('\n') || !cur ? '' : '\n') + '.drop-*\n');
+    }
+  } catch {}
   const rollback = () => {
     try {
+      // Un-stage the temp patch file FIRST. A gate run happens after
+      // `git add -A`, so the patch file is staged; `reset --hard` would then
+      // restore it from the index and the `finally` unlink would leave a
+      // phantom " D .drop-*.patch" entry in an otherwise clean tree.
+      try { sh(`git rm -q --cached --ignore-unmatch "${patchRel}"`); } catch {}
       sh('git reset -q --hard HEAD');
       // -e keeps the drop dir: those payloads are our audit trail, and
       // deleting them would discard the very patch we're debugging.
-      sh(`git clean -qfd${relDrop ? ` -e "${relDrop}"` : ''}`);
+      sh(`git clean -qfd -e "${patchRel}"${relDrop ? ` -e "${relDrop}"` : ''}`);
     } catch {}
   };
 
@@ -148,7 +173,7 @@ function applyDrop({ repoRoot, dropDir, receipt, round, gate = null }) {
     // Quality gate: validate the agent's work BEFORE it becomes a commit.
     // A broken file that gets committed is inherited by every later agent.
     if (gate) {
-      const result = gate(repoRoot);
+      const result = gate(repoRoot, baseline);
       if (!result.ok) {
         rollback();
         const err = new Error(
