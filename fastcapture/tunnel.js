@@ -154,7 +154,9 @@ async function resolveAny(host) {
     if (ip) return ip;
   }
   try {
-    const a = await require('dns').promises.lookup(host);
+    // family:4 — many campus/enterprise networks have no working IPv6 route,
+    // so an AAAA answer would connect-timeout even though the name resolves.
+    const a = await require('dns').promises.lookup(host, { family: 4 });
     if (a && a.address) return a.address;
   } catch { }
   return null;
@@ -263,21 +265,36 @@ function launchTunnel(bin, port, protocol, { timeoutMs, log }) {
  * cloudflared prints one and then 530s forever. Hit /health through the public
  * URL and require a real answer.
  */
-function tunnelServes(url, { attempts = 6, log = () => { } } = {}) {
+function tunnelServes(url, { attempts = 8, log = () => { } } = {}) {
   const https = require('https');
-  const once = () =>
+  const host = new URL(url).hostname;
+
+  const once = (ip) =>
     new Promise((resolve) => {
+      // Connect by IP with explicit SNI + Host. Using the hostname directly
+      // would go through the OS resolver, which has just cached NXDOMAIN for
+      // this brand-new name — reporting ENOTFOUND even though DNS is live.
+      // (waitForDns already proved the name resolves via DoH.)
       const req = https.get(
-        `${url.replace(/\/$/, '')}/health`,
-        { headers: { 'User-Agent': 'agentchain-tunnelcheck' }, timeout: 10000 },
+        {
+          host: ip || host,
+          servername: host,
+          headers: { Host: host, 'User-Agent': 'agentchain-tunnelcheck' },
+          path: '/health',
+          port: 443,
+          timeout: 10000,
+        },
         (res) => {
           const chunks = [];
           res.on('data', (c) => chunks.push(c));
           res.on('end', () => {
             const body = Buffer.concat(chunks).toString();
             if (res.statusCode === 200 && body.includes('"ok"')) return resolve({ ok: true });
-            // 530/1033 == tunnel registered no origin connection.
-            resolve({ ok: false, error: `HTTP ${res.statusCode}${/1033/.test(body) ? ' (error 1033)' : ''}` });
+            // 530 / 1033 == edge has no origin connection registered.
+            resolve({
+              ok: false,
+              error: `HTTP ${res.statusCode}${/1033/.test(body) ? ' (error 1033)' : ''}`,
+            });
           });
         }
       );
@@ -288,7 +305,8 @@ function tunnelServes(url, { attempts = 6, log = () => { } } = {}) {
   return (async () => {
     let last = { ok: false, error: 'not attempted' };
     for (let i = 0; i < attempts; i++) {
-      last = await once();
+      const ip = await resolveAny(host).catch(() => null);
+      last = await once(ip);
       if (last.ok) return last;
       await new Promise((r) => setTimeout(r, 2500));
     }
