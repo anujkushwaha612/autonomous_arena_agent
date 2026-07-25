@@ -303,7 +303,7 @@ source.
 ---
 
 ### T2: Rooms, join/create & lobby state
-**STATUS: TODO**
+**STATUS: DONE**
 
 **Requirements**
 
@@ -891,3 +891,4 @@ One revision, made before T1 started, after an audit for missing features:
 
 <!-- Agents append one line here per completed task -->
 - 2026-07-25 T1 completed: server skeleton, build, health endpoint, basic static hosting.
+- 2026-07-25 T2 completed: room lifecycle, validated join/create WebSocket protocol, and lobby smoke test.
