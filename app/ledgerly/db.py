@@ -15,26 +15,51 @@ def get_connection(path: Optional[str] = None) -> sqlite3.Connection:
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    """Create the initial schema, safely on every invocation."""
+    """Apply all schema migrations in order, safely on every invocation."""
     with conn:
         conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
-        if conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == 0:
+        row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+        version = int(row[0]) if row is not None and row[0] is not None else 0
+
+        if version < 1:
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS accounts (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    kind TEXT NOT NULL,
+                    currency TEXT NOT NULL,
+                    opening_balance_cents INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                )"""
+            )
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS transactions (
+                    id INTEGER PRIMARY KEY,
+                    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                    date TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    amount_cents INTEGER NOT NULL,
+                    category_id INTEGER,
+                    is_transfer INTEGER NOT NULL DEFAULT 0,
+                    external_id TEXT,
+                    created_at TEXT NOT NULL
+                )"""
+            )
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS categories (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    parent_id INTEGER REFERENCES categories(id),
+                    kind TEXT NOT NULL
+                )"""
+            )
+            conn.execute("DELETE FROM schema_version")
             conn.execute("INSERT INTO schema_version(version) VALUES (1)")
-        conn.execute("""CREATE TABLE IF NOT EXISTS accounts (
-            id INTEGER PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
-            kind TEXT NOT NULL, currency TEXT NOT NULL,
-            opening_balance_cents INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)
-        """)
-        conn.execute("""CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-            date TEXT NOT NULL, description TEXT NOT NULL, amount_cents INTEGER NOT NULL,
-            category_id INTEGER, is_transfer INTEGER NOT NULL DEFAULT 0,
-            external_id TEXT, created_at TEXT NOT NULL)
-        """)
-        conn.execute("""CREATE TABLE IF NOT EXISTS categories (
-            id INTEGER PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
-            parent_id INTEGER REFERENCES categories(id), kind TEXT NOT NULL)
-        """)
+            version = 1
+
+        if version < 2:
+            conn.execute("ALTER TABLE accounts ADD COLUMN archived_at TEXT")
+            conn.execute("UPDATE schema_version SET version = 2")
 
 
 def init_db(path: Optional[str] = None) -> sqlite3.Connection:

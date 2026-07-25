@@ -232,7 +232,7 @@ Also verify by hand (no committed file): health returns 200 with
 ---
 
 ### T2: Accounts
-**STATUS: TODO**
+**STATUS: DONE**
 
 **Requirements**
 
@@ -399,3 +399,4 @@ Re-run the T1/T3/T7 committed tests — they must still pass.
 
 <!-- Agents append one line here per completed task -->
 - T1 completed: SQLite schema, models, router, health API, CLI skeleton, and migration test.
+- T2 completed: account CRUD/archive services, v2 archive migration, account API routes, and CLI commands.
