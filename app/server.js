@@ -16,6 +16,7 @@ const { addRoute, route, sendJson } = require('./router');
 const store = require('./store');
 const links = require('./links');
 const validate = require('./validate');
+const analytics = require('./analytics');
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
 const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -89,6 +90,23 @@ function registerRoutes() {
     sendJson(res, 200, { links: all, total: all.length });
   });
 
+  // --- T5: Click analytics ---
+
+  addRoute('GET', '/api/stats/top', (req, res) => {
+    const limitParam = req.query && req.query.limit;
+    const limit = limitParam !== undefined ? parseInt(limitParam, 10) : 10;
+    const top = analytics.getTopLinks(isNaN(limit) ? 10 : limit);
+    sendJson(res, 200, { links: top });
+  });
+
+  addRoute('GET', '/api/links/:code/stats', (req, res) => {
+    const code = req.params.code;
+    const link = links.getLink(code);
+    if (!link) return sendJson(res, 404, { error: 'Not found' });
+    const stats = analytics.getStats(code);
+    sendJson(res, 200, stats);
+  });
+
   // Fetch one link by code.
   addRoute('GET', '/api/links/:code', (req, res) => {
     const link = links.getLink(req.params.code);
@@ -113,6 +131,17 @@ function registerRoutes() {
     }
     const link = links.getLink(code);
     if (!link) return sendJson(res, 404, { error: 'Not found' });
+
+    try {
+      analytics.recordClick(code, {
+        referrer: req.headers['referer'] || req.headers['referrer'],
+        userAgent: req.headers['user-agent'],
+        ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
+      });
+    } catch (err) {
+      console.error('[analytics] failed to record click:', err.message);
+    }
+
     sendRedirect(res, 302, link.url);
   });
 }
