@@ -1,6 +1,6 @@
 const express = require('express');
 const http = require('http');
-const { WebSocketServer } = require('ws');
+const { WebSocket, WebSocketServer } = require('ws');
 const { v4: uuidv4 } = require('uuid');
 
 const PORT = process.env.PORT || 3000;
@@ -31,9 +31,44 @@ function clientSummary(client) {
 }
 
 function sendJson(socket, payload) {
-  if (socket.readyState === socket.OPEN) {
+  if (socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(payload));
   }
+}
+
+function broadcastJson(payload) {
+  for (const client of clients.values()) {
+    sendJson(client.socket, payload);
+  }
+}
+
+function parseIncomingMessage(rawMessage) {
+  try {
+    return JSON.parse(rawMessage.toString());
+  } catch (_error) {
+    return null;
+  }
+}
+
+function normalizeChatMessage(payload) {
+  if (!payload || payload.type !== 'message') {
+    return null;
+  }
+
+  const content = typeof payload.content === 'string' ? payload.content.trim() : '';
+  const username = typeof payload.username === 'string' ? payload.username.trim() : '';
+
+  if (!content || !username) {
+    return null;
+  }
+
+  return {
+    type: 'message',
+    id: uuidv4(),
+    username,
+    content,
+    timestamp: new Date().toISOString(),
+  };
 }
 
 wss.on('connection', (socket, req) => {
@@ -55,6 +90,24 @@ wss.on('connection', (socket, req) => {
     type: 'welcome',
     clientId: id,
     connectedAt: client.connectedAt,
+  });
+
+  socket.on('message', (rawMessage) => {
+    const payload = parseIncomingMessage(rawMessage);
+    const message = normalizeChatMessage(payload);
+
+    if (!message) {
+      sendJson(socket, {
+        type: 'error',
+        error: 'Invalid message. Expected { type: "message", content: "...", username: "..." }',
+      });
+      return;
+    }
+
+    console.log(
+      `[ws] message ${message.id} from ${message.username} (${clientSummary(client)}): ${message.content}`,
+    );
+    broadcastJson(message);
   });
 
   socket.on('error', (error) => {

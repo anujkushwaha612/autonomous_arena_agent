@@ -37,7 +37,7 @@ Build the basic WebSocket server infrastructure.
 ---
 
 ### T2: Basic Message Broadcasting
-**STATUS: TODO**
+**STATUS: DONE**
 
 Add message send/receive functionality.
 
@@ -434,4 +434,5 @@ Add file sharing and search functionality.
 
 <!-- Agents append one line here per completed task -->
 - 2026-07-25: Completed T1 WebSocket Server Foundation with Express HTTP server, ws connection tracking, lifecycle logging, and package metadata.
+- 2026-07-25: Completed T2 Basic Message Broadcasting with validated incoming chat messages, UUID/timestamp enrichment, broadcast to all connected clients, and message logging.
 
