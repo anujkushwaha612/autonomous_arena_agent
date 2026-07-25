@@ -75,14 +75,81 @@ function checkJson(repoRoot, files) {
   return errors;
 }
 
-/** Guard against secrets and junk the agent shouldn't have committed. */
+/**
+ * Secret / junk scanner.
+ *
+ * Two layers, because filename rules alone are not enough:
+ *   1. FILENAMES that should never be committed (.env*, keys, keystores)
+ *   2. CONTENT patterns for high-confidence credential formats, so a secret
+ *      pasted into an ordinary .js or .json file is still caught.
+ *
+ * This matters more than it looks: a leaked credential in git history is
+ * effectively permanent, and an autonomous agent commits without a human
+ * eyeballing the diff first.
+ */
+const FORBIDDEN_NAMES = [
+  { rx: /(^|\/)node_modules\//, msg: 'node_modules must not be committed' },
+  // Real env files only. .env.example / .env.sample / .env.template are the
+  // documented, intended way to ship config shape and must stay allowed.
+  { rx: /(^|\/)\.env(\.(?!example$|sample$|template$|dist$)[A-Za-z0-9_-]+)?$/i,
+    msg: 'env files must not be committed (commit .env.example instead)' },
+  { rx: /(^|\/)(id_rsa|id_dsa|id_ecdsa|id_ed25519)$/, msg: 'looks like an SSH private key' },
+  { rx: /\.(pem|key|p12|pfx|jks|keystore|ppk)$/i, msg: 'looks like a key or keystore' },
+  { rx: /(^|\/)\.npmrc$/, msg: '.npmrc often contains auth tokens' },
+  { rx: /(^|\/)\.git-credentials$/, msg: 'contains git credentials' },
+  { rx: /(^|\/)(credentials|service-account.*\.json)$/i, msg: 'looks like a credentials file' },
+  { rx: /\.(sqlite3?|db)$/i, msg: 'database file — data should not be committed' },
+];
+
+// High-confidence only. Deliberately NOT matching generic words like
+// "password" or "secret", which would fire on docs, tests and .env.example
+// and train people to ignore the gate.
+const SECRET_PATTERNS = [
+  { rx: /-----BEGIN [A-Z ]*PRIVATE KEY-----/, msg: 'private key block' },
+  { rx: /\bAKIA[0-9A-Z]{16}\b/, msg: 'AWS access key id' },
+  { rx: /aws_secret_access_key["']?\s*[:=]\s*["']?[A-Za-z0-9/+=]{40}/i, msg: 'AWS secret access key' },
+  { rx: /\bsk_live_[0-9a-zA-Z]{20,}/, msg: 'Stripe live secret key' },
+  { rx: /\bgh[pousr]_[A-Za-z0-9]{36,}/, msg: 'GitHub token' },
+  { rx: /\bxox[baprs]-[A-Za-z0-9-]{10,}/, msg: 'Slack token' },
+  { rx: /\bAIza[0-9A-Za-z_-]{35}\b/, msg: 'Google API key' },
+  { rx: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/, msg: 'hard-coded JWT' },
+  { rx: /\b(postgres|postgresql|mysql|mongodb(\+srv)?|redis|amqp):\/\/[^\s:@/"']+:[^\s:@/"']+@/i,
+    msg: 'connection string with an inline password' },
+];
+
+// Files where a fake credential is expected and fine.
+const SECRET_SCAN_SKIP = /(^|\/)(\.env\.example|.*\.example|.*\.sample|.*\.md|package-lock\.json)$/i;
+
 function checkForbidden(repoRoot, files) {
   const errors = [];
+
   for (const f of files) {
-    if (/(^|\/)node_modules\//.test(f)) errors.push(`${f}: node_modules must not be committed`);
-    if (/(^|\/)\.env$/.test(f)) errors.push(`${f}: .env must not be committed`);
-    if (/\.(pem|key|p12|pfx)$/.test(f)) errors.push(`${f}: looks like a private key`);
+    for (const { rx, msg } of FORBIDDEN_NAMES) {
+      if (rx.test(f)) { errors.push(`${f}: ${msg}`); break; }
+    }
   }
+
+  for (const f of files) {
+    if (SECRET_SCAN_SKIP.test(f)) continue;
+    const abs = path.join(repoRoot, f);
+    let st;
+    try { st = fs.statSync(abs); } catch { continue; }
+    if (!st.isFile() || st.size > 2 * 1024 * 1024) continue; // skip huge/binary-ish
+
+    let text;
+    try { text = fs.readFileSync(abs, 'utf8'); } catch { continue; }
+    if (text.includes('\u0000')) continue; // binary
+
+    for (const { rx, msg } of SECRET_PATTERNS) {
+      const m = text.match(rx);
+      if (m) {
+        const line = text.slice(0, m.index).split('\n').length;
+        errors.push(`${f}:${line}: possible ${msg} committed — move it to an env var`);
+        break; // one finding per file is enough to block
+      }
+    }
+  }
+
   return errors;
 }
 

@@ -24,6 +24,25 @@ stack. Install dependencies with whatever the project uses (npm, pip, cargo,
 go mod…), but never commit installed packages (`node_modules/`, `.venv/`,
 `target/`, `__pycache__/`).
 
+SECRETS AND CREDENTIALS — non-negotiable.
+
+You do NOT have production credentials and must never invent, guess or commit
+any. The repository you cloned contains no real secrets by design.
+
+- Read every credential from `process.env` (or your language's equivalent).
+- If a feature needs a new setting, add it to `.env.example` with a PLACEHOLDER
+  value and document it — never a real value.
+- Never commit `.env`, `.env.local`, `.env.production`, private keys, SSH keys,
+  `.npmrc`, service-account JSON, or database files. The worker will reject the
+  patch and the round is wasted.
+- Never hard-code a token, API key, password or connection string in source,
+  tests or fixtures — not even a "temporary" or "example" one that looks real.
+- Assume you cannot reach any real database or third-party API from your
+  sandbox. Write code that works against them, but make your TESTS pass without
+  them: use an in-memory/temp-file fallback, or skip cleanly when the relevant
+  env var is absent. A test that requires production infrastructure is a broken
+  test.
+
 STEP 5 — Update the brain.
 
 Flip your task's STATUS from TODO to DONE, append one line to the Activity Log in `agents.md`, and overwrite `NEXT.md` with a short note for the next agent.

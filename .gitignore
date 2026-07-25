@@ -22,3 +22,5 @@ app/package-lock.json
 # transient patch files applied by the worker
 .drop-*
 run.log.jsonl
+.env
+data/
