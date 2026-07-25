@@ -34,7 +34,7 @@ function findCloudflared() {
   try {
     const p = execSync(probe, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim().split('\n')[0];
     if (p) return p;
-  } catch {}
+  } catch { }
   const local = localBinPath();
   return fs.existsSync(local) ? local : null;
 }
@@ -156,7 +156,7 @@ async function resolveAny(host) {
   try {
     const a = await require('dns').promises.lookup(host);
     if (a && a.address) return a.address;
-  } catch {}
+  } catch { }
   return null;
 }
 
@@ -189,17 +189,31 @@ async function waitForDns(host, log = console.log, timeoutMs = 45000) {
   return null;
 }
 
-/** Start a quick tunnel (no Cloudflare account needed) and resolve its URL. */
-async function startTunnel(port, { timeoutMs = 150000, log = console.log } = {}) {
-  const bin = await ensureCloudflared(log);
-
+/**
+ * Launch cloudflared once with a specific transport and resolve its public URL.
+ *
+ * `protocol`:
+ *   'quic'  — the default. Uses UDP/7844 outbound.
+ *   'http2' — falls back to TCP/443, which almost every network permits.
+ *
+ * WHY THIS MATTERS
+ * Campus and corporate LANs (IIT Bombay's among them) commonly block outbound
+ * UDP except DNS. cloudflared then starts happily and prints a URL, but never
+ * registers with Cloudflare's edge — so every request returns HTTP 530
+ * "error code: 1033". The process looks healthy; the tunnel is dead.
+ * Forcing `--protocol http2` puts the control connection on TCP/443.
+ */
+function launchTunnel(bin, port, protocol, { timeoutMs, log }) {
   return new Promise((resolve, reject) => {
-    // Use 127.0.0.1, NOT "localhost". On Windows localhost resolves to ::1
-    // first, but the ingest server binds IPv4 loopback — cloudflared would
-    // get ECONNREFUSED and every upload would fail as "unreachable".
-    const proc = spawn(bin, ['tunnel', '--url', `http://127.0.0.1:${port}`, '--no-autoupdate'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const args = [
+      'tunnel',
+      '--url', `http://127.0.0.1:${port}`,
+      '--no-autoupdate',
+      '--protocol', protocol,
+      // Keep edge logs quiet but still emit the URL line we parse.
+      '--loglevel', 'info',
+    ];
+    const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     let settled = false;
     let resolving = false;
@@ -212,16 +226,21 @@ async function startTunnel(port, { timeoutMs = 150000, log = console.log } = {})
     };
 
     const timer = setTimeout(() => {
-      proc.kill();
-      done(reject, new Error('timed out waiting for cloudflared to report a URL'));
+      try { proc.kill(); } catch { }
+      done(reject, new Error(`cloudflared (${protocol}) timed out before reporting a URL`));
     }, timeoutMs);
 
     const scan = (chunk) => {
       buf += chunk.toString();
+
+      // Surface the classic UDP-blocked signature early instead of waiting out
+      // the full timeout.
+      if (/failed to dial to edge|failed to create quic connection|no such host.*argotunnel/i.test(buf)) {
+        try { proc.kill(); } catch { }
+        return done(reject, new Error(`cloudflared (${protocol}) could not reach Cloudflare's edge`));
+      }
+
       const m = buf.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
-      // cloudflared prints the URL before DNS exists. Don't hand it back until
-      // the hostname actually resolves publicly, otherwise the very first
-      // lookup NXDOMAINs and gets negative-cached for minutes.
       if (m && !resolving) {
         resolving = true;
         waitForDns(new URL(m[0]).hostname, log)
@@ -233,8 +252,104 @@ async function startTunnel(port, { timeoutMs = 150000, log = console.log } = {})
     proc.stdout.on('data', scan);
     proc.stderr.on('data', scan); // cloudflared logs the URL to stderr
     proc.on('error', (e) => done(reject, e));
-    proc.on('exit', (code) => done(reject, new Error(`cloudflared exited early (code ${code})`)));
+    proc.on('exit', (code) =>
+      done(reject, new Error(`cloudflared (${protocol}) exited early (code ${code})`))
+    );
   });
+}
+
+/**
+ * Is the tunnel actually serving? A URL alone proves nothing — with UDP blocked
+ * cloudflared prints one and then 530s forever. Hit /health through the public
+ * URL and require a real answer.
+ */
+function tunnelServes(url, { attempts = 6, log = () => { } } = {}) {
+  const https = require('https');
+  const once = () =>
+    new Promise((resolve) => {
+      const req = https.get(
+        `${url.replace(/\/$/, '')}/health`,
+        { headers: { 'User-Agent': 'agentchain-tunnelcheck' }, timeout: 10000 },
+        (res) => {
+          const chunks = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () => {
+            const body = Buffer.concat(chunks).toString();
+            if (res.statusCode === 200 && body.includes('"ok"')) return resolve({ ok: true });
+            // 530/1033 == tunnel registered no origin connection.
+            resolve({ ok: false, error: `HTTP ${res.statusCode}${/1033/.test(body) ? ' (error 1033)' : ''}` });
+          });
+        }
+      );
+      req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'timeout' }); });
+      req.on('error', (e) => resolve({ ok: false, error: e.code || e.message }));
+    });
+
+  return (async () => {
+    let last = { ok: false, error: 'not attempted' };
+    for (let i = 0; i < attempts; i++) {
+      last = await once();
+      if (last.ok) return last;
+      await new Promise((r) => setTimeout(r, 2500));
+    }
+    return last;
+  })();
+}
+
+/**
+ * Start a quick tunnel, trying each transport until one actually serves.
+ *
+ * Set TUNNEL_PROTOCOL=http2 to skip straight to the TCP path on a network you
+ * already know blocks UDP.
+ */
+async function startTunnel(port, { timeoutMs = 150000, log = console.log } = {}) {
+  const bin = await ensureCloudflared(log);
+
+  const forced = process.env.TUNNEL_PROTOCOL;
+  const order = forced ? [forced] : ['quic', 'http2'];
+
+  let lastErr = null;
+
+  for (const protocol of order) {
+    let started = null;
+    try {
+      if (order.length > 1 && protocol !== order[0]) {
+        log(`  🔁 retrying over ${protocol} (TCP 443) — your network likely blocks UDP…`);
+      }
+      started = await launchTunnel(bin, port, protocol, { timeoutMs, log });
+    } catch (e) {
+      lastErr = e;
+      continue;
+    }
+
+    // A URL is not proof. Confirm the edge can actually reach us.
+    const serving = await tunnelServes(started.url, { log });
+    if (serving.ok) {
+      if (protocol !== 'quic') log(`  ✅ tunnel up over ${protocol}`);
+      return started;
+    }
+
+    log(`  ⚠️  tunnel over ${protocol} is not serving (${serving.error}).`);
+    try { started.proc.kill(); } catch { }
+    lastErr = new Error(`tunnel over ${protocol} did not serve traffic (${serving.error})`);
+  }
+
+  const help = `
+  Could not establish a working tunnel: ${lastErr ? lastErr.message : 'unknown error'}
+
+  This is almost always a restrictive network (campus / corporate / VPN).
+  Options, easiest first:
+
+    1. Tether to your phone's cellular data — known to work for you.
+    2. Force the TCP transport explicitly:
+         TUNNEL_PROTOCOL=http2 node worker.js
+    3. Use a different tunnel provider you can reach, e.g.
+         npx localtunnel --port 8787
+         INGEST_URL=https://<subdomain>.loca.lt TUNNEL=off node worker.js
+    4. Run the worker on a machine with a public IP (VPS) and skip tunnelling:
+         INGEST_URL=http://<public-ip>:8787 TUNNEL=off node worker.js
+`;
+  throw new Error(help);
 }
 
 module.exports = { startTunnel, ensureCloudflared, findCloudflared, resolveAny, resolveDoH };
