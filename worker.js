@@ -31,9 +31,24 @@ try {
 }
 
 const CONFIG = require('./config');
+
+/**
+ * Append one JSON line per event to run.log.jsonl.
+ * Unattended runs are impossible to debug from scrollback alone; this survives
+ * the terminal closing and makes failures greppable.
+ */
+function logEvent(event) {
+  try {
+    fs.appendFileSync(
+      CONFIG.runLogFile,
+      JSON.stringify({ ts: new Date().toISOString(), ...event }) + '\n'
+    );
+  } catch {}
+}
 const { startIngest } = require('./fastcapture/ingest-server');
 const { startTunnel, resolveAny } = require('./fastcapture/tunnel');
 const { findReceipt, applyDrop } = require('./fastcapture/claim');
+const { runGate } = require('./fastcapture/gate');
 
 // ── shell helpers ────────────────────────────────────────────────────────────
 const sh = (cmd) =>
@@ -84,7 +99,16 @@ async function main() {
     try { ingest.close(); } catch {}
     if (tunnelProc) { try { tunnelProc.kill(); } catch {} }
   };
-  process.on('SIGINT', () => { console.log('\nInterrupted.'); cleanup(); process.exit(130); });
+  // Ctrl+C: finish the round in flight if possible, then stop. Progress is
+  // committed per-round, so nothing is ever lost mid-session.
+  let stopRequested = false;
+  process.on('SIGINT', () => {
+    if (stopRequested) { console.log('\n  Forced exit.'); cleanup(); process.exit(130); }
+    stopRequested = true;
+    console.log('\n  ⏹  Stop requested — finishing the current task, then exiting.');
+    console.log('     (press Ctrl+C again to quit immediately)');
+  });
+  global.__shouldStop = () => stopRequested;
 
   // 2b. Best-effort check that the URL is reachable, so an obviously broken
   // tunnel surfaces here instead of as a mysterious failure two minutes later.
@@ -117,18 +141,37 @@ async function main() {
   }
 
   // 3. round loop
+  const budget = CONFIG.tasksPerSession;
+  const totalAtStart = countTodo();
+  let completedThisSession = 0;
+  let consecutiveFailures = 0;
+
+  if (Number.isFinite(budget)) {
+    console.log(
+      `\n▸ Session budget: ${budget} task(s) this sitting ` +
+        `(${totalAtStart} unfinished overall).`
+    );
+  }
+
   try {
     for (let round = 1; round <= CONFIG.maxRounds; round++) {
       console.log(`\n═══════════════ ROUND ${round} ═══════════════`);
 
       shQuiet('git pull --ff-only');
 
+      // Make sure the remote really has our last commit before the next agent
+      // clones. A fixed sleep is a guess; this checks the actual state.
+      if (round > 1) waitForRemoteSync();
+
       const remaining = countTodo();
       if (remaining === 0) {
         console.log('  🎉 No TODO tasks left in agents.md. Project complete!');
         break;
       }
-      console.log(`  ${remaining} task(s) remaining`);
+      console.log(
+        `  ${remaining} task(s) remaining` +
+          (Number.isFinite(budget) ? `  •  ${completedThisSession}/${budget} done this session` : '')
+      );
 
       const nonce = String(Date.now());
       const prompt = buildPrompt({ round, nonce, ingestUrl });
@@ -161,13 +204,27 @@ async function main() {
         await context.close();
       }
 
-      if (result.kind === 'failed') {
-        console.log(`\n  ❌ Agent reported failure: ${result.reason}`);
-        break;
-      }
-      if (result.kind === 'timeout') {
-        console.log('\n  ⏰ Timed out waiting for the agent. Stopping for review.');
-        break;
+      if (result.kind === 'failed' || result.kind === 'timeout') {
+        const what =
+          result.kind === 'failed'
+            ? `Agent reported failure: ${result.reason}`
+            : 'Timed out waiting for the agent.';
+        consecutiveFailures++;
+        logEvent({ event: 'round_failed', round, kind: result.kind, reason: result.reason || null });
+        console.log(`\n  ❌ ${what}`);
+        if (consecutiveFailures >= CONFIG.maxConsecutiveFailures) {
+          console.log(
+            `     ${consecutiveFailures} failed rounds in a row — stopping for review.`
+          );
+          break;
+        }
+        // Transient problems (a flaky tunnel, a confused agent, a hung page)
+        // shouldn't end an unattended run. Nothing was committed, so retrying
+        // the same task is safe.
+        console.log(
+          `     Retrying (${consecutiveFailures}/${CONFIG.maxConsecutiveFailures} consecutive failures).`
+        );
+        continue;
       }
       if (result.kind === 'done') {
         if (countTodo() > 0) {
@@ -186,15 +243,61 @@ async function main() {
           dropDir: CONFIG.dropDir,
           receipt: result.receipt,
           round,
+          gate: CONFIG.gateEnabled
+            ? (repoRoot) =>
+                runGate(repoRoot, {
+                  userCmd: CONFIG.verifyCmd,
+                  timeoutMs: CONFIG.verifyTimeoutMs,
+                  log: (m) => console.log(m),
+                })
+            : null,
         });
         if (r.mode === 'skipped') {
           console.log(`  ↪️  Already applied (${r.note}).`);
         } else {
           console.log(`  ✅ Applied ${r.bytes}B via ${r.mode}, committed & pushed.`);
+          completedThisSession++;
+          logEvent({ event: 'task_done', round, receipt: result.receipt, bytes: r.bytes, mode: r.mode });
         }
+
+        // Session budget reached — stop cleanly. Progress is already committed
+        // in agents.md, so the next run resumes at the first unfinished task.
+        if (global.__shouldStop && global.__shouldStop()) {
+          const left = countTodo();
+          console.log(`\n  ⏹  Stopped by request after ${completedThisSession} task(s).`);
+          console.log(`     ${left} remaining — progress saved & pushed. Re-run to resume.`);
+          break;
+        }
+
+        if (completedThisSession >= budget) {
+          const left = countTodo();
+          console.log(`\n  🛑 Session budget reached (${completedThisSession} task(s) done).`);
+          if (left > 0) {
+            console.log(`     ${left} task(s) still to do — progress is saved & pushed.`);
+            console.log('     Resume any time with:');
+            console.log(`       TASKS=${budget} node worker.js    (next ${budget})`);
+            console.log('       node worker.js                (finish everything)');
+          } else {
+            console.log('     🎉 That was the last one — project complete!');
+          }
+          break;
+        }
+        consecutiveFailures = 0; // a clean round resets the counter
       } catch (e) {
+        consecutiveFailures++;
+        logEvent({ event: 'apply_failed', round, receipt: result.receipt, error: e.message, gate: !!e.gateFailure });
         console.error(`\n  ❌ Could not apply drop: ${e.message}`);
-        break;
+        if (e.gateFailure) {
+          console.error('     The agent\'s code did not pass validation; nothing was committed.');
+        }
+        if (consecutiveFailures >= CONFIG.maxConsecutiveFailures) {
+          console.error(`     ${consecutiveFailures} failures in a row — stopping for review.`);
+          break;
+        }
+        console.error(
+          `     Retrying (${consecutiveFailures}/${CONFIG.maxConsecutiveFailures} consecutive failures).`
+        );
+        continue;
       }
     }
   } catch (err) {
@@ -202,6 +305,25 @@ async function main() {
   } finally {
     cleanup();
   }
+
+  // Session summary — always tell the user exactly where they left off.
+  try {
+    const left = countTodo();
+    const total = (fs.readFileSync(CONFIG.brainFile, 'utf8').match(/^\*\*STATUS:\s*(TODO|DONE)\*\*\s*$/gim) || []).length;
+    console.log('\n────────────── session summary ──────────────');
+    console.log(`  completed this session : ${completedThisSession}`);
+    console.log(`  overall progress       : ${total - left}/${total} done`);
+    if (left > 0) {
+      console.log(`  remaining              : ${left}`);
+      console.log('\n  Resume any time:');
+      console.log('    npm run status        # see where you are');
+      console.log('    TASKS=5 node worker.js  # next 5 tasks');
+      console.log('    node worker.js          # finish everything');
+    } else {
+      console.log('\n  🎉 All tasks complete.');
+    }
+    console.log('─────────────────────────────────────────────');
+  } catch {}
 
   console.log('\nWorker finished.\n');
   process.exit(0);
@@ -265,6 +387,41 @@ function selfTest(baseUrl, { timeoutMs = 90000, onProgress = () => {} } = {}) {
     }
     return { ...last, ms: Date.now() - started };
   })();
+}
+
+
+/**
+ * Confirm the remote's HEAD matches ours before the next agent clones.
+ *
+ * Deterministic alternative to "sleep 10s and hope". `git ls-remote` asks the
+ * server what it actually has, so we wait exactly as long as needed — usually
+ * zero, because git push is synchronous and GitHub is consistent for the
+ * subsequent clone. Cheap insurance, no wasted time.
+ */
+function waitForRemoteSync(timeoutMs = 30000) {
+  const local = shQuiet('git rev-parse HEAD').trim();
+  if (!local) return;
+  const branch = (shQuiet('git rev-parse --abbrev-ref HEAD').trim() || 'main');
+  const started = Date.now();
+  let warned = false;
+
+  while (Date.now() - started < timeoutMs) {
+    const out = shQuiet(`git ls-remote origin ${branch}`).trim();
+    const remote = out.split(/\s+/)[0] || '';
+    if (remote === local) {
+      const ms = Date.now() - started;
+      if (ms > 1500) console.log(`  ✅ remote in sync after ${Math.round(ms / 1000)}s`);
+      return;
+    }
+    if (!warned) {
+      console.log('  ⏳ waiting for the remote to reflect our push…');
+      warned = true;
+    }
+    execSync(process.platform === 'win32' ? 'timeout /t 2 /nobreak > NUL' : 'sleep 2', {
+      stdio: 'ignore',
+    });
+  }
+  console.log('  ⚠️  remote still behind after 30s — continuing anyway.');
 }
 
 // ── setup checks ─────────────────────────────────────────────────────────────
@@ -396,11 +553,11 @@ async function waitForResult(page, anchor) {
     const receipt = findReceipt(fresh, CONFIG.receiptRegex);
     if (receipt) return { kind: 'receipt', receipt };
 
-    if (fresh.includes(CONFIG.sentinelFailed)) {
+    if (CONFIG.sentinelFailedRegex.test(fresh)) {
       const line = fresh.split('\n').find((l) => l.includes('HANDOFF_FAILED')) || '';
       return { kind: 'failed', reason: line.replace(/%%%HANDOFF_FAILED%%%/g, '').trim() };
     }
-    if (fresh.includes(CONFIG.sentinelDone)) return { kind: 'done' };
+    if (CONFIG.sentinelDoneRegex.test(fresh)) return { kind: 'done' };
 
     if (++tick % 15 === 0) {
       const mins = Math.round((Date.now() - (deadline - CONFIG.maxTaskMs)) / 60000);

@@ -16,8 +16,10 @@ const { execSync } = require('child_process');
 
 /** Pull the receipt out of the visible chat transcript. */
 function findReceipt(text, regex) {
-  const m = text.match(regex);
-  return m ? m[1] : null;
+  // Take the LAST receipt, not the first. If the agent's upload failed and it
+  // retried, it may print more than one; the final one is the live drop.
+  const all = [...text.matchAll(new RegExp(regex.source, 'g'))];
+  return all.length ? all[all.length - 1][1] : null;
 }
 
 /** Read + integrity-check a drop written by the ingest server. */
@@ -42,7 +44,7 @@ function claim(dropDir, receipt) {
  * Apply a drop to the repo, commit and push.
  * Handles plain diffs and git bundles.
  */
-function applyDrop({ repoRoot, dropDir, receipt, round }) {
+function applyDrop({ repoRoot, dropDir, receipt, round, gate = null }) {
   const { meta, buf } = claim(dropDir, receipt);
   const sh = (c) => execSync(c, { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] });
 
@@ -141,6 +143,21 @@ function applyDrop({ repoRoot, dropDir, receipt, round }) {
     if (conflicted) {
       rollback();
       throw new Error(`unresolved conflicts in: ${conflicted.split('\n').join(', ')}`);
+    }
+
+    // Quality gate: validate the agent's work BEFORE it becomes a commit.
+    // A broken file that gets committed is inherited by every later agent.
+    if (gate) {
+      const result = gate(repoRoot);
+      if (!result.ok) {
+        rollback();
+        const err = new Error(
+          `quality gate failed (${result.errors.length} problem(s)) — round rolled back:\n` +
+            result.errors.map((e) => `      • ${e}`).join('\n')
+        );
+        err.gateFailure = true;
+        throw err;
+      }
     }
 
     sh('git add -A');

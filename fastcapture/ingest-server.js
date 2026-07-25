@@ -76,8 +76,15 @@ function startIngest({ port, token, dropDir, quiet = false }) {
       const sha = crypto.createHash('sha256').update(body).digest('hex');
       const receipt = sha.slice(0, 12);
       const kind = url.searchParams.get('kind') === 'bundle' ? 'bundle' : 'patch';
-      const round = url.searchParams.get('round') || '0';
+      // Sanitised: only ever recorded in JSON metadata, never used in a path.
+      const round = (url.searchParams.get('round') || '0').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32);
+
+      // The filename comes ONLY from the sha256 hash we computed ourselves and
+      // a whitelisted `kind`, so no caller-controlled string reaches the path.
       const file = path.join(dropDir, `${receipt}.${kind}`);
+      if (path.dirname(path.resolve(file)) !== path.resolve(dropDir)) {
+        return json(res, 400, { error: 'refusing to write outside dropDir' });
+      }
 
       fs.writeFileSync(file, body);
       fs.writeFileSync(
@@ -111,7 +118,10 @@ function startIngest({ port, token, dropDir, quiet = false }) {
 
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, () => {
+    // Bind to loopback ONLY. cloudflared runs on this machine and connects to
+    // 127.0.0.1, so the tunnel still works — but nobody on your local network
+    // (café/office Wi-Fi) can reach the port directly.
+    server.listen(port, '127.0.0.1', () => {
       log(`  ✅ ingest listening on :${port}  → ${dropDir}`);
       resolve(server);
     });
