@@ -2,8 +2,10 @@ const express = require('express');
 const http = require('http');
 const { WebSocket, WebSocketServer } = require('ws');
 const { v4: uuidv4 } = require('uuid');
+const storage = require('./storage');
 
 const PORT = process.env.PORT || 3000;
+const HISTORY_LIMIT = storage.DEFAULT_LIMIT;
 
 const app = express();
 app.use(express.json());
@@ -13,6 +15,18 @@ app.get('/', (_req, res) => {
     status: 'ok',
     service: 'AgentChain WebSocket chat server',
     clients: clients.size,
+    rooms: storage.getRoomIds(),
+  });
+});
+
+// Convenience REST view of the same history the WebSocket sends on connect.
+app.get('/history', (req, res) => {
+  const roomId = typeof req.query.roomId === 'string' ? req.query.roomId : storage.DEFAULT_ROOM;
+  const limit = Number.parseInt(req.query.limit, 10);
+
+  res.json({
+    roomId: roomId.trim() || storage.DEFAULT_ROOM,
+    messages: storage.getMessages(roomId, Number.isNaN(limit) ? HISTORY_LIMIT : limit),
   });
 });
 
@@ -50,6 +64,10 @@ function parseIncomingMessage(rawMessage) {
   }
 }
 
+function resolveRoomId(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : storage.DEFAULT_ROOM;
+}
+
 function normalizeChatMessage(payload) {
   if (!payload || payload.type !== 'message') {
     return null;
@@ -65,10 +83,19 @@ function normalizeChatMessage(payload) {
   return {
     type: 'message',
     id: uuidv4(),
+    roomId: resolveRoomId(payload.roomId),
     username,
     content,
     timestamp: new Date().toISOString(),
   };
+}
+
+function sendHistory(socket, roomId, limit = HISTORY_LIMIT) {
+  const room = resolveRoomId(roomId);
+  const messages = storage.getMessages(room, limit);
+
+  sendJson(socket, { type: 'history', roomId: room, messages });
+  return messages;
 }
 
 wss.on('connection', (socket, req) => {
@@ -90,10 +117,29 @@ wss.on('connection', (socket, req) => {
     type: 'welcome',
     clientId: id,
     connectedAt: client.connectedAt,
+    defaultRoom: storage.DEFAULT_ROOM,
   });
+
+  // New connections immediately receive recent history for the default room.
+  const history = sendHistory(socket, storage.DEFAULT_ROOM);
+  console.log(`[ws] sent ${history.length} history message(s) to ${clientSummary(client)}`);
 
   socket.on('message', (rawMessage) => {
     const payload = parseIncomingMessage(rawMessage);
+
+    if (payload && payload.type === 'getHistory') {
+      const limit = Number.parseInt(payload.limit, 10);
+      const sent = sendHistory(
+        socket,
+        payload.roomId,
+        Number.isNaN(limit) ? HISTORY_LIMIT : limit,
+      );
+      console.log(
+        `[ws] getHistory from ${clientSummary(client)}: returned ${sent.length} message(s)`,
+      );
+      return;
+    }
+
     const message = normalizeChatMessage(payload);
 
     if (!message) {
@@ -104,10 +150,19 @@ wss.on('connection', (socket, req) => {
       return;
     }
 
+    let stored;
+    try {
+      stored = storage.saveMessage(message);
+    } catch (error) {
+      console.error(`[storage] failed to save message ${message.id}: ${error.message}`);
+      sendJson(socket, { type: 'error', error: 'Could not save message. Please try again.' });
+      return;
+    }
+
     console.log(
-      `[ws] message ${message.id} from ${message.username} (${clientSummary(client)}): ${message.content}`,
+      `[ws] message ${stored.id} from ${stored.username} in #${stored.roomId} (${clientSummary(client)}): ${stored.content}`,
     );
-    broadcastJson(message);
+    broadcastJson(stored);
   });
 
   socket.on('error', (error) => {
