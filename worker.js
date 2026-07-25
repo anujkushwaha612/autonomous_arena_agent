@@ -667,15 +667,23 @@ async function tryNewChat(page) {
   }
 }
 
-async function typePrompt(page, text) {
+async function typePrompt(page, text, { composerTimeoutMs = 60000 } = {}) {
   let input = await findComposer(page);
   if (!input) {
-    await page
-      .locator(CONFIG.inputSelectors.join(', '))
-      .filter({ visible: true })
-      .first()
-      .waitFor({ state: 'visible', timeout: 15000 });
-    input = await findComposer(page);
+    // 15s was too short: after a long agent turn the composer can take a while
+    // to become interactive again, and a timeout here silently costs the whole
+    // repair round. Poll instead of a single hard wait.
+    const deadline = Date.now() + composerTimeoutMs;
+    while (!input && Date.now() < deadline) {
+      if (page.isClosed && page.isClosed()) throw new Error('browser page was closed');
+      await page.waitForTimeout(1500).catch(() => {});
+      input = await findComposer(page);
+    }
+    if (!input) {
+      throw new Error(
+        `chat composer did not become available within ${Math.round(composerTimeoutMs / 1000)}s`
+      );
+    }
   }
 
   await input.focus();

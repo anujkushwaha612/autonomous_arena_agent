@@ -265,6 +265,16 @@ The server is **already running** — do not start it yourself. Available on `t`
 
 Rules:
 
+- **Test over HTTP, not by importing source.** Do NOT `import`/`require` your
+  own `src/` files in a test. Use `t.get`/`t.post` against the running server.
+  Importing app source drags the whole module graph into the test loader and
+  fails on TypeScript path resolution (`Cannot find module './db.js'`), even
+  though the server itself started perfectly. `t.appRequire` exists only for
+  testing a **pure function** in isolation (1RM maths, plate breakdown, CSV
+  quoting) — never for anything that touches Express or the database.
+- **Name test files `*.test.js`**, even in a TypeScript project. They are run
+  by the pipeline, not by your bundler, and plain `.js` avoids an entire class
+  of loader problems.
 - **Deterministic and independent.** Create your own data; never depend on
   another test having run. Make names unique with `Date.now()`.
 - **Assert real values**, not just `status < 500`.

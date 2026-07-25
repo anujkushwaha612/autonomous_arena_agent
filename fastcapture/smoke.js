@@ -280,6 +280,26 @@ function ensureDeps(appDir, log) {
   return true;
 }
 
+/**
+ * Does this project need a TypeScript loader?
+ *
+ * `npm start` may run through tsx/ts-node, so the SERVER boots fine — but our
+ * own test loader is plain node. A test that imports app source then dies with
+ * "Cannot find module ./db.js", because TypeScript emits .js specifiers that
+ * only a TS loader resolves back to .ts. Detect that and re-exec this runner
+ * under whichever loader the project already depends on.
+ */
+function needsTsLoader(appDir, files) {
+  if (process.env.SMOKE_TS_RELOADED) return null; // already re-execed once
+  const hasTsTest = files.some((f) => /\.(ts|mts)$/.test(f));
+  const hasTsSrc = fs.existsSync(path.join(appDir, 'tsconfig.json'));
+  if (!hasTsTest && !hasTsSrc) return null;
+  for (const loader of ['tsx', 'ts-node']) {
+    if (fs.existsSync(path.join(appDir, 'node_modules', loader))) return loader;
+  }
+  return null;
+}
+
 async function main() {
   if (!fs.existsSync(APP_DIR)) {
     console.log(`  ⏭  no ${WORK_DIR}/ directory yet — nothing to smoke test.`);
@@ -290,7 +310,10 @@ async function main() {
     return 0;
   }
 
-  const files = fs.readdirSync(TEST_DIR).filter((f) => f.endsWith('.test.js')).sort();
+  const files = fs
+    .readdirSync(TEST_DIR)
+    .filter((f) => /\.test\.(js|mjs|cjs|ts|mts)$/.test(f))
+    .sort();
   if (!files.length) {
     console.log('  ⚠️  no *.test.js files found — skipping.');
     return 0;
@@ -299,6 +322,23 @@ async function main() {
   if (!ensureDeps(APP_DIR, (m) => console.log(m))) {
     console.log('  ── smoke: could not install dependencies ──\n');
     return 1;
+  }
+
+  const tsLoader = needsTsLoader(APP_DIR, files);
+  if (tsLoader) {
+    console.log(`  🔁 TypeScript project — re-running tests under ${tsLoader}`);
+    const args =
+      tsLoader === 'tsx' ? ['--import', 'tsx', __filename] : ['-r', 'ts-node/register', __filename];
+    const res = require('child_process').spawnSync(process.execPath, args, {
+      stdio: 'inherit',
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        SMOKE_TS_RELOADED: '1',
+        NODE_PATH: path.join(APP_DIR, 'node_modules'),
+      },
+    });
+    return res.status === null ? 1 : res.status;
   }
 
   const needsServer = Boolean(SMOKE_CMD && SMOKE_CMD.trim());
