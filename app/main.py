@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, NoReturn
 from urllib.parse import parse_qs
 
-from ledgerly import accounts, budgets, categories, importer, transactions
+from ledgerly import accounts, budgets, categories, importer, reports, transactions
 from ledgerly.api import (
     APIError,
     APIResponse,
@@ -488,6 +488,63 @@ def _budget_status(_params: dict[str, str], _body: Any) -> dict[str, Any]:
         _raise_budget_error(exc)
 
 
+def _report_spending(_params: dict[str, str], _body: Any) -> list[dict[str, Any]]:
+    full_path = _current_path[0] if _current_path else "/"
+    _, query = _parse_path(full_path)
+    start = _query_single(query, "start") if "start" in query else "1900-01-01"
+    end = _query_single(query, "end") if "end" in query else "2099-12-31"
+    top = _parse_int_param(query, "top", minimum=1) if "top" in query else None
+    try:
+        return reports.spending_by_category(_connection(), start, end, top=top)
+    except transactions.TransactionError as exc:
+        _raise_transaction_error(exc)
+
+
+def _report_monthly(_params: dict[str, str], _body: Any) -> list[dict[str, Any]]:
+    full_path = _current_path[0] if _current_path else "/"
+    _, query = _parse_path(full_path)
+    months = _parse_int_param(query, "months", minimum=1) if "months" in query else 12
+    return reports.monthly_totals(_connection(), months)
+
+
+def _report_cashflow(_params: dict[str, str], _body: Any) -> dict[str, Any]:
+    full_path = _current_path[0] if _current_path else "/"
+    _, query = _parse_path(full_path)
+    start = _query_single(query, "start") if "start" in query else "1900-01-01"
+    end = _query_single(query, "end") if "end" in query else "2099-12-31"
+    try:
+        return reports.cashflow(_connection(), start, end)
+    except transactions.TransactionError as exc:
+        _raise_transaction_error(exc)
+
+
+def _report_search(_params: dict[str, str], _body: Any) -> list[dict[str, Any]]:
+    full_path = _current_path[0] if _current_path else "/"
+    _, query = _parse_path(full_path)
+    q = _query_single(query, "q")
+    start = _query_single(query, "start") if "start" in query else None
+    end = _query_single(query, "end") if "end" in query else None
+    # Use direct integer parsing for cents as they can be negative
+    min_cents: int | None = None
+    if "min_cents" in query:
+        try:
+            min_cents = int(_query_single(query, "min_cents"))
+        except ValueError:
+            raise APIError(400, "invalid_request", "min_cents must be an integer")
+    max_cents: int | None = None
+    if "max_cents" in query:
+        try:
+            max_cents = int(_query_single(query, "max_cents"))
+        except ValueError:
+            raise APIError(400, "invalid_request", "max_cents must be an integer")
+    try:
+        return reports.search(
+            _connection(), q, start=start, end=end, min_cents=min_cents, max_cents=max_cents
+        )
+    except transactions.TransactionError as exc:
+        _raise_transaction_error(exc)
+
+
 def _reject_unknown_fields(payload: dict[str, Any], allowed: set[str]) -> None:
     unknown = sorted(set(payload) - allowed)
     if unknown:
@@ -564,6 +621,10 @@ router.add_route("POST", "/api/v1/categories", _create_category)
 router.add_route("GET", "/api/v1/rules", _list_rules)
 router.add_route("POST", "/api/v1/rules", _create_rule)
 router.add_route("POST", "/api/v1/rules/apply", _apply_rules)
+router.add_route("GET", "/api/v1/reports/spending", _report_spending)
+router.add_route("GET", "/api/v1/reports/monthly", _report_monthly)
+router.add_route("GET", "/api/v1/reports/cashflow", _report_cashflow)
+router.add_route("GET", "/api/v1/reports/search", _report_search)
 router.add_route("GET", "/api/v1/transactions/:id", _get_transaction)
 router.add_route("PATCH", "/api/v1/transactions/:id", _update_transaction)
 router.add_route("DELETE", "/api/v1/transactions/:id", _delete_transaction)

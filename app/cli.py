@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import NoReturn, Sequence
 
-from ledgerly import accounts, budgets, categories, importer, transactions
+from ledgerly import accounts, budgets, categories, importer, reports, transactions
 from ledgerly.db import init_db
 from ledgerly.models import Account, Budget, Category, Rule, Transaction
 
@@ -127,6 +127,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="YYYY-MM month (defaults to the current month)",
     )
     budget_commands.add_parser("list", help="list stored budgets")
+
+    report_parser = subcommands.add_parser("report", help="show financial reports")
+    report_commands = report_parser.add_subparsers(dest="report_command", required=True)
+
+    spending_report = report_commands.add_parser("spending", help="spending by category")
+    spending_report.add_argument("--start", default="1900-01-01", help="YYYY-MM-DD")
+    spending_report.add_argument("--end", default="2099-12-31", help="YYYY-MM-DD")
+    spending_report.add_argument("--top", type=int, default=None, help="limit to top N categories")
+
+    monthly_report = report_commands.add_parser("monthly", help="monthly income/expense totals")
+    monthly_report.add_argument("--months", type=int, default=12, help="last N months (default 12)")
+
+    cashflow_report = report_commands.add_parser("cashflow", help="opening/closing balances and flow")
+    cashflow_report.add_argument("--start", default="1900-01-01", help="YYYY-MM-DD")
+    cashflow_report.add_argument("--end", default="2099-12-31", help="YYYY-MM-DD")
+
+    search_parser = subcommands.add_parser("search", help="search transactions")
+    search_parser.add_argument("query", help="description search text")
+    search_parser.add_argument("--start", default=None, help="YYYY-MM-DD")
+    search_parser.add_argument("--end", default=None, help="YYYY-MM-DD")
+    search_parser.add_argument("--min-cents", type=int, default=None)
+    search_parser.add_argument("--max-cents", type=int, default=None)
     return parser
 
 
@@ -157,6 +179,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.command == "budget":
         _run_budget(args, parser)
         return
+    if args.command == "report":
+        _run_report(args, parser)
+        return
+    if args.command == "search":
+        _run_search(args, parser)
+        return
     parser.print_help()
 
 
@@ -172,6 +200,112 @@ def _health() -> None:
         )
     finally:
         connection.close()
+
+
+def _run_report(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    connection = init_db()
+    try:
+        if args.report_command == "spending":
+            try:
+                data = reports.spending_by_category(connection, args.start, args.end, top=args.top)
+            except (transactions.TransactionError, ValueError) as exc:
+                _cli_error(parser, str(exc))
+            _print_spending_report(data)
+        elif args.report_command == "monthly":
+            data = reports.monthly_totals(connection, args.months)
+            _print_monthly_report(data)
+        elif args.report_command == "cashflow":
+            try:
+                data = reports.cashflow(connection, args.start, args.end)
+            except (transactions.TransactionError, ValueError) as exc:
+                _cli_error(parser, str(exc))
+            _print_cashflow_report(data)
+    finally:
+        connection.close()
+
+
+def _run_search(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    connection = init_db()
+    try:
+        try:
+            data = reports.search(
+                connection,
+                args.query,
+                start=args.start,
+                end=args.end,
+                min_cents=args.min_cents,
+                max_cents=args.max_cents,
+            )
+        except (transactions.TransactionError, ValueError) as exc:
+            _cli_error(parser, str(exc))
+        _print_search_results(data)
+    finally:
+        connection.close()
+
+
+def _print_spending_report(data: list[dict[str, Any]]) -> None:
+    if not data:
+        print("No spending found.")
+        return
+    rows = [[row["category"], row["total"]] for row in data]
+    headers = ["CATEGORY", "TOTAL"]
+    widths = [
+        max(len(headers[index]), *(len(row[index]) for row in rows))
+        for index in range(len(headers))
+    ]
+    print(_format_row(headers, widths))
+    print(_format_row(["-" * width for width in widths], widths))
+    for row in rows:
+        print(_format_row(row, widths))
+
+
+def _print_monthly_report(data: list[dict[str, Any]]) -> None:
+    rows = [[row["month"], row["income"], row["expense"], row["net"]] for row in data]
+    headers = ["MONTH", "INCOME", "EXPENSE", "NET"]
+    widths = [
+        max(len(headers[index]), *(len(row[index]) for row in rows))
+        for index in range(len(headers))
+    ]
+    print(_format_row(headers, widths))
+    print(_format_row(["-" * width for width in widths], widths))
+    for row in rows:
+        print(_format_row(row, widths))
+
+
+def _print_cashflow_report(data: dict[str, Any]) -> None:
+    for label, key in (
+        ("Opening balance", "opening"),
+        ("Total in", "total_in"),
+        ("Total out", "total_out"),
+        ("Closing balance", "closing"),
+    ):
+        print(f"{label}: {data[key]}")
+
+
+def _print_search_results(data: list[dict[str, Any]]) -> None:
+    print(f"Total found: {len(data)}")
+    if not data:
+        return
+    table: list[list[str]] = []
+    for row in data:
+        table.append(
+            [
+                str(row["id"]),
+                str(row["date"]),
+                str(row["description"]),
+                str(row["amount"]),
+                str(row["category_name"] or "-"),
+            ]
+        )
+    headers = ["ID", "DATE", "DESCRIPTION", "AMOUNT", "CATEGORY"]
+    widths = [
+        max(len(headers[index]), *(len(row[index]) for row in table))
+        for index in range(len(headers))
+    ]
+    print(_format_row(headers, widths))
+    print(_format_row(["-" * width for width in widths], widths))
+    for row in table:
+        print(_format_row(row, widths))
 
 
 def _run_account(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
