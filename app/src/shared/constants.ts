@@ -47,3 +47,15 @@ export const PLAYER_SPEED_PX_S = 110;
 
 /** Health endpoint. */
 export const SERVER_VERSION = '0.1.0';
+
+/** Authoritative game tuning, in map units / seconds. */
+export const CREW_SPEED = 2.0;
+export const IMPOSTOR_SPEED = 2.2;
+export const KILL_RADIUS = 1.5;
+export const CREW_VISION = 3.5;
+export const IMPOSTOR_VISION = 4.5;
+export const GHOST_VISION = 99;
+export const KILL_COOLDOWN_SECONDS = 25;
+export const ROOM_TTL_MS = 30 * 60 * 1000;
+export const ROOM_CLEAN_INTERVAL_MS = 60 * 1000;
+export const MAX_PROTOCOL_BYTES = 4 * 1024;

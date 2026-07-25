@@ -156,3 +156,26 @@ if (document.readyState === 'loading') {
 } else {
   boot();
 }
+
+type LobbyMessage = { t: 'joined'; you: string; room: { code: string; players: Array<{ id: string; name: string; colour: number; ready: boolean; host: boolean }> } } | { t: 'snapshot'; players: Array<{ id: string; name: string; colour: number; ready: boolean; host: boolean }> } | { t: 'error'; message: string };
+const palette = ['#C51111','#132ED1','#117F2D','#ED54BA','#EF7D0D','#F5F557','#3F474E','#D6E0F0','#6B2FBB','#71491E','#38FEDC','#50EF39'];
+function setupLobby(): void {
+  const create = document.getElementById('create-room') as HTMLButtonElement | null;
+  const join = document.getElementById('show-join') as HTMLButtonElement | null;
+  const menu = document.getElementById('menu-actions'); const form = document.getElementById('lobby-form') as HTMLFormElement | null;
+  const codeField = document.getElementById('code-field'); const code = document.getElementById('room-code') as HTMLInputElement | null;
+  const name = document.getElementById('player-name') as HTMLInputElement | null; const error = document.getElementById('lobby-error');
+  const view = document.getElementById('lobby-view'); const roster = document.getElementById('player-roster'); const copy = document.getElementById('copy-code') as HTMLButtonElement | null;
+  const ready = document.getElementById('ready-toggle') as HTMLButtonElement | null; let mode: 'create' | 'join' = 'create'; let socket: WebSocket | null = null; let isReady = false;
+  const showForm = (next: 'create' | 'join') => { mode = next; if (menu) menu.hidden = true; if (form) form.hidden = false; if (codeField) codeField.hidden = mode === 'create'; if (code) code.required = mode === 'join'; const submit = document.getElementById('lobby-submit'); if (submit) submit.textContent = mode === 'join' ? 'Join lobby' : 'Create lobby'; name?.focus(); };
+  const showError = (text: string) => { if (!error) return; error.textContent = text; error.classList.remove('shake'); void error.offsetWidth; error.classList.add('shake'); };
+  const render = (players: Array<{ id: string; name: string; colour: number; ready: boolean; host: boolean }>) => { if (!roster) return; roster.replaceChildren(...players.map((player) => { const row = document.createElement('div'); row.className = 'roster-player'; row.innerHTML = `<span class="bean-swatch" style="background:${palette[player.colour] ?? palette[0]}"></span><span>${player.name}</span>${player.host ? '<span class="host-crown">★ HOST</span>' : ''}${player.ready ? '<span class="ready-mark">READY</span>' : ''}`; return row; })); };
+  const connect = () => { const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; socket = new WebSocket(`${protocol}//${location.host}`); socket.addEventListener('message', (event) => { let message: LobbyMessage; try { message = JSON.parse(event.data as string) as LobbyMessage; } catch { return; } if (message.t === 'error') showError(message.message); if (message.t === 'joined') { form!.hidden = true; view!.hidden = false; copy!.textContent = message.room.code; render(message.room.players); } if (message.t === 'snapshot') render(message.players); }); socket.addEventListener('open', () => { const playerName = name?.value.trim() ?? ''; socket?.send(JSON.stringify(mode === 'create' ? { t: 'create', name: playerName } : { t: 'join', name: playerName, code: code?.value.trim().toUpperCase() })); }); socket.addEventListener('error', () => showError('Unable to reach the game server.')); };
+  create?.addEventListener('click', () => showForm('create')); join?.addEventListener('click', () => showForm('join'));
+  document.getElementById('cancel-lobby')?.addEventListener('click', () => { form!.hidden = true; if (menu) menu.hidden = false; });
+  form?.addEventListener('submit', (event) => { event.preventDefault(); if (!name?.value.trim()) return showError('Pick a crew name first.'); if (mode === 'join' && !/^[A-Z]{4}$/i.test(code?.value.trim() ?? '')) return showError('Enter the four-letter room code.'); connect(); });
+  ready?.addEventListener('click', () => { isReady = !isReady; ready.textContent = isReady ? 'Ready ✓' : 'Ready'; socket?.send(JSON.stringify({ t: 'ready', value: isReady })); });
+  copy?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(copy.textContent ?? ''); copy.textContent = 'COPIED!'; setTimeout(() => { if (copy.textContent === 'COPIED!') copy.textContent = copy.dataset.code ?? '----'; }, 900); } catch { showError('Copy the room code manually.'); } });
+  copy?.addEventListener('click', () => { if (copy && copy.textContent !== 'COPIED!') copy.dataset.code = copy.textContent; });
+}
+document.addEventListener('DOMContentLoaded', setupLobby, { once: true });

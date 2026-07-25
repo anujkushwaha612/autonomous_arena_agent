@@ -47,19 +47,23 @@
 
         <p id="conn-status" class="conn-status" data-state="connecting">Connecting&hellip;</p>
 
-        <div class="menu-buttons">
-          <button class="btn btn--primary" type="button" disabled title="Coming in a later build">
-            Find game
-          </button>
-          <button class="btn" type="button" disabled title="Coming in a later build">
-            Create room
-          </button>
-          <button class="btn" type="button" disabled title="Coming in a later build">
-            Join with code
-          </button>
+        <div id="menu-actions" class="menu-buttons">
+          <button id="create-room" class="btn btn--primary" type="button">Create room</button>
+          <button id="show-join" class="btn" type="button">Join with code</button>
         </div>
-
-        <p class="footnote">Rooms, lobbies and gameplay ship in later builds of this pipeline.</p>
+        <form id="lobby-form" class="lobby-form" novalidate>
+          <label>YOUR NAME<input id="player-name" maxlength="16" value="Crewmate" autocomplete="nickname" /></label>
+          <label id="code-field" hidden>ROOM CODE<input id="room-code" maxlength="4" placeholder="ABCD" autocapitalize="characters" /></label>
+          <button id="lobby-submit" class="btn btn--primary" type="submit">Create lobby</button>
+          <button id="cancel-lobby" class="text-button" type="button">Back</button>
+        </form>
+        <section id="lobby-view" class="lobby-view" hidden aria-live="polite">
+          <div class="code-line"><span>ROOM CODE</span><button id="copy-code" class="room-code" type="button">----</button></div>
+          <div id="player-roster" class="player-roster"></div>
+          <button id="ready-toggle" class="btn" type="button">Ready</button>
+        </section>
+        <p id="lobby-error" class="lobby-error" role="alert"></p>
+        <p class="footnote">Create a private lobby, share the code, and assemble your crew.</p>
       </div>
     </section>
 

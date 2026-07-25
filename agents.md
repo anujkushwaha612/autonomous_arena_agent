@@ -364,7 +364,7 @@ source.
 ---
 
 ### T2: Rooms, join/create & lobby state
-**STATUS: TODO**
+**STATUS: DONE**
 
 **Requirements**
 
@@ -809,3 +809,4 @@ Before marking your task DONE, confirm:
 
 <!-- Agents append one line here per completed task -->
 - T1 DONE — server skeleton (http+ws on one port), static hosting with traversal guard, `/api/health`, Among Us styled landing page with canvas starfield & spinning crewmate SVG, esbuild bundling, strict TS, `app/tests/health.test.js` committed and passing via `node fastcapture/smoke.js`.
+- T2 DONE — validated WebSocket room lifecycle with TTL cleanup, lobby snapshots/host promotion, protocol validation, polished create/join lobby UI, and committed live lobby smoke coverage.

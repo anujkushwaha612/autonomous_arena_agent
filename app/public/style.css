@@ -228,3 +228,19 @@ html, body {
   .brand-tagline { font-size: 1.1rem; }
   .panel-inner { padding: 1.5rem 1rem; }
 }
+
+.lobby-form, .lobby-view { width: 100%; display: flex; flex-direction: column; gap: .7rem; }
+.lobby-form label { color: #aebce0; font-size: 1rem; letter-spacing: .1em; display: grid; gap: .25rem; }
+.lobby-form input { width: 100%; border: 3px solid #080a10; border-radius: 13px; background: #101522; box-shadow: inset 0 3px 5px #05060b; color: #fff; font: 1.45rem inherit; padding: .45rem .7rem; text-transform: uppercase; outline-color: #80d9ff; }
+.text-button { border: 0; background: none; color: #aebce0; font: 1.1rem inherit; cursor: pointer; text-decoration: underline; }
+.code-line { display: flex; align-items: center; justify-content: space-between; color: #aebce0; font-size: 1.05rem; letter-spacing: .08em; }
+.room-code { color: white; background: #111827; border: 3px solid #05070f; border-radius: 12px; box-shadow: 0 3px #05070f; font: 1.8rem inherit; letter-spacing: .12em; padding: .2rem .6rem; cursor: pointer; }
+.room-code:active { transform: translateY(2px) scale(.96); box-shadow: 0 1px #05070f; }
+.player-roster { display: grid; gap: .45rem; max-height: 220px; overflow: auto; padding: .2rem; }
+.roster-player { display: flex; align-items: center; gap: .55rem; border: 2px solid #070910; border-radius: 14px; background: linear-gradient(110deg,#343b55,#20263a); padding: .4rem .6rem; box-shadow: inset 0 1px rgba(255,255,255,.15); font-size: 1.2rem; }
+.bean-swatch { width: 19px; height: 25px; border-radius: 10px 10px 7px 7px; border: 2px solid #05070f; box-shadow: inset 3px 2px rgba(255,255,255,.25); }
+.ready-mark { margin-left: auto; color: #75f79b; font-size: 1rem; letter-spacing: .08em; }
+.host-crown { color: #ffd659; }
+.lobby-error { color: #ff8787; min-height: 1.1em; margin: 0; font-size: 1.05rem; text-align:center; }
+.shake { animation: error-shake .34s linear; }
+@keyframes error-shake { 25% { transform: translateX(-8px) } 50% { transform:translateX(8px) } 75% { transform:translateX(-4px) } }
