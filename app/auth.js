@@ -1,10 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 
 const BCRYPT_ROUNDS = 10;
 const DATA_DIR = path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+
+// Stable JWT secret — env var takes precedence.
+const JWT_SECRET = process.env.JWT_SECRET || 'agentchain-dev-secret-do-not-use-in-production';
+const JWT_EXPIRES_IN = '24h';
 
 // In-memory mirror of users.json: { [username]: { username, passwordHash, joinedAt } }.
 let users = null;
@@ -100,6 +105,80 @@ function reset() {
   persist();
 }
 
+/**
+ * Verify username + password and return a signed JWT.
+ * @param {string} username
+ * @param {string} password plaintext password
+ * @returns {Promise<{ token: string, username: string, expiresAt: string }>}
+ */
+async function login(username, password) {
+  const record = getUser(username);
+
+  if (!record) {
+    const error = new Error('Invalid username or password.');
+    error.code = 'INVALID_CREDENTIALS';
+    throw error;
+  }
+
+  const valid = await bcrypt.compare(password, record.passwordHash);
+
+  if (!valid) {
+    const error = new Error('Invalid username or password.');
+    error.code = 'INVALID_CREDENTIALS';
+    throw error;
+  }
+
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const token = jwt.sign(
+    { username, iat: Math.floor(Date.now() / 1000) },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRES_IN },
+  );
+
+  console.log(`[auth] user "${username}" logged in successfully`);
+  return { token, username, expiresAt };
+}
+
+/**
+ * Verify and decode a JWT token.
+ * @param {string} token
+ * @returns {{ username: string } | null} decoded payload, or null if invalid/expired
+ */
+function verifyToken(token) {
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    return payload;
+  } catch (err) {
+    // Token is invalid or expired — treat as unauthenticated.
+    return null;
+  }
+}
+
+/**
+ * Express middleware that reads a Bearer token from Authorization header
+ * and attaches the decoded payload to req.user.
+ * Sends 401 if no valid token is present.
+ */
+function authenticateRequest(req, res, next) {
+  const header = req.headers.authorization || '';
+
+  if (!header.startsWith('Bearer ')) {
+    res.status(401).json({ success: false, error: 'Missing or invalid Authorization header.' });
+    return;
+  }
+
+  const token = header.slice(7).trim();
+  const payload = verifyToken(token);
+
+  if (!payload) {
+    res.status(401).json({ success: false, error: 'Invalid or expired token.' });
+    return;
+  }
+
+  req.user = payload;
+  next();
+}
+
 // Make sure data/users.json exists on first require.
 load();
 if (!fs.existsSync(USERS_FILE)) {
@@ -108,8 +187,12 @@ if (!fs.existsSync(USERS_FILE)) {
 
 module.exports = {
   USERS_FILE,
+  JWT_SECRET,
   register,
   getUser,
   userExists,
+  login,
+  verifyToken,
+  authenticateRequest,
   reset,
 };

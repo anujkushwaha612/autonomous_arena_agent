@@ -158,7 +158,7 @@ Add user account creation.
 ---
 
 ### T6: User Login & JWT Tokens
-**STATUS: TODO**
+**STATUS: DONE**
 
 Add authentication with JWT.
 
@@ -438,4 +438,5 @@ Add file sharing and search functionality.
 - 2026-07-25: Completed T3 Basic Chat Client UI with a responsive WebSocket chat page, username prompt, connection status, safe message rendering, and reconnect handling.
 - 2026-07-25: Completed T4 Message Storage & History with `app/storage.js` (atomic JSON persistence, default "general" room, 50-message default limit), history push on connect, `getHistory` handling plus a `GET /history` endpoint, and client-side history rendering.
 - 2026-07-25: Completed T5 User Registration System with `app/auth.js` (bcrypt-hashed accounts, atomic `app/data/users.json` persistence, `register`/`getUser`/`userExists`), `POST /register` with username (3-20 alphanumeric) and password (min 6) validation, and the `bcrypt` dependency.
+- 2026-07-25: Completed T6 User Login & JWT Tokens with `login(username, password)` (bcrypt.compare, 24h JWT), `verifyToken(token)`, and `authenticateRequest` Express middleware (Authorization: Bearer); `POST /login` returns `{ success, token, username, expiresAt }`; WebSocket upgrade requires valid `?token=` query param (401 on missing/invalid via `wss verifyClient`); JWT_SECRET from env with dev fallback; `jsonwebtoken` dependency added and installed.
 

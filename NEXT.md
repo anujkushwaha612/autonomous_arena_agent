@@ -1,30 +1,25 @@
 # NEXT.md — handoff notes for the next agent
 
-T5 is complete. User registration works end to end.
+T6 is complete. Login + JWT auth works end to end.
 
 **What landed**
-- `app/auth.js` — `register(username, password)` (async, bcrypt, 10 rounds), `getUser(username)`,
-  `userExists(username)`, plus `reset()`. Backed by `app/data/users.json` shaped as
-  `{ [username]: { username, passwordHash, joinedAt } }`, cached in memory and written atomically
-  (tmp file + rename), mirroring the `storage.js` pattern. A missing or corrupt file self-heals to
-  `{}`, and malformed records are dropped on load. Exports `USERS_FILE`.
-- `app/server.js` — `POST /register` validates username (`/^[a-zA-Z0-9]{3,20}$/`, trimmed) and
-  password (string, min 6 chars). Responses: `201 { success: true, user: { username, joinedAt } }`
-  on success (passwordHash is never exposed), `400` for validation failures, `409` for duplicate
-  username, `500` for unexpected storage errors. Also logs each registration.
-- `app/package.json` — added `bcrypt ^5.1.1`. Native install compiled fine in the sandbox, so no
-  `bcryptjs` fallback was needed.
-- `app/data/users.json` — committed as a clean empty `{}` (test users were removed after verifying).
+- `app/auth.js` — added `jwt` require, `JWT_SECRET` (env var with dev fallback), `JWT_EXPIRES_IN = '24h'`; three new exports:
+  - `login(username, password)` — calls `getUser`, `bcrypt.compare`, signs a 24h JWT, returns `{ token, username, expiresAt }`; throws `INVALID_CREDENTIALS` for unknown user or bad password.
+  - `verifyToken(token)` — wraps `jwt.verify`; returns decoded payload or `null` for bad/expired tokens.
+  - `authenticateRequest(req, res, next)` — reads `Authorization: Bearer <token>`, calls `verifyToken`, attaches `req.user` on success, sends `401` on failure.
+- `app/server.js` — `POST /login` endpoint (400 missing fields, 401 INVALID_CREDENTIALS, 200 `{ token, username, expiresAt }`); `wss` constructed with `verifyClient` that parses `?token=` from the upgrade URL, calls `auth.verifyToken`, and attaches `req.authUser` on success (401 otherwise); `welcome` WebSocket message now includes `username` from the token; `jsonwebtoken` added to `package.json`.
+- `app/package.json` — added `jsonwebtoken ^9.0.2`; `npm install` run inside `app/`.
 
-**Verified:** `curl -X POST -H "Content-Type: application/json" -d '{"username":"alice","password":"pass123"}' http://localhost:3000/register`
-→ 201; duplicate → 409; username `ab`, `bad_user!`, and missing fields → 400; password `abc` → 400;
-the stored `$2b$10$…` hash verifies via `bcrypt.compare`; duplicate detection survives a server
-restart (cache reloads from disk).
+**Verified:**
+```
+curl -X POST -H "Content-Type: application/json" -d '{"username":"alice","password":"pass123"}' http://localhost:3000/register   # 201
+curl -X POST -H "Content-Type: application/json" -d '{"username":"alice","password":"pass123"}' http://localhost:3000/login    # 200 { token, username, expiresAt }
+curl -X POST -H "Content-Type: application/json" -d '{"username":"alice","password":"wrong"}' http://localhost:3000/login       # 401
+auth.verifyToken(validToken) → { username, iat, exp }
+auth.verifyToken(badToken)   → null
+ws://localhost:3000/?token=<valid>  → connects, welcome.username == "alice"
+ws://localhost:3000/             → 401 upgrade rejected (missing token)
+ws://localhost:3000/?token=bad    → 401 upgrade rejected (invalid token)
+```
 
-**Next task is T6: User Login & JWT Tokens** — extend `app/auth.js` with `login(username, password)`
-(verify via `bcrypt.compare` against `getUser(...).passwordHash`, return a JWT expiring in 24h),
-`verifyToken(token)`, and an `authenticateRequest` Express middleware (token from `Authorization: Bearer …`);
-add `POST /login` returning `{ token, username }`; require a valid `?token=` query param on WebSocket
-upgrade (reject with 401 in `wss` `verifyClient` or on the upgrade request); add `jsonwebtoken` to
-`app/package.json`. Keep a stable JWT secret (env var with a dev fallback is fine). Run `npm install`
-inside `app/` after editing package.json.
+**Next task is T7: Multiple Chat Rooms** — extend `app/storage.js` with `createRoom`, `getRooms`, `joinRoom`, `leaveRoom`, `getRoomMembers` (rooms in `app/data/rooms.json`); update `app/server.js` with `POST /rooms`, `GET /rooms`, `POST /rooms/:id/join`, `POST /rooms/:id/leave`, and route messages by `roomId`; update `app/client.html` with a room list sidebar, create/join/leave controls, and room-scoped message display. Keep JWT auth from T6 on all room routes. Create `app/data/rooms.json` as a clean empty `{}`. Run `npm install` inside `app/` after any package.json changes.
