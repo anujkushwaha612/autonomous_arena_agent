@@ -11,7 +11,7 @@ The **task brain**. Each agent completes exactly ONE task, then hands off.
 ## Task list
 
 ### T1: WebSocket Server Foundation
-**STATUS: TODO**
+**STATUS: DONE**
 
 Build the basic WebSocket server infrastructure.
 
@@ -433,3 +433,5 @@ Add file sharing and search functionality.
 ## Activity Log
 
 <!-- Agents append one line here per completed task -->
+- 2026-07-25: Completed T1 WebSocket Server Foundation with Express HTTP server, ws connection tracking, lifecycle logging, and package metadata.
+

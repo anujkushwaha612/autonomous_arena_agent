@@ -1,0 +1,14 @@
+{
+  "name": "agentchain-chat-app",
+  "version": "1.0.0",
+  "description": "WebSocket chat server for AgentChain autonomous agents project",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.3",
+    "uuid": "^9.0.1",
+    "ws": "^8.16.0"
+  }
+}
