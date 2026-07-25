@@ -2,6 +2,11 @@ node_modules/
 .arena-profile/
 app/node_modules/
 
+# runtime state — the data dir is tracked via .gitkeep, its contents are not
+app/data/*.json
+app/data/*.json.tmp
+!app/data/.gitkeep
+
 # runtime patch drops (raw agent payloads) — never commit
 fastcapture/drops/*
 !fastcapture/drops/.gitkeep

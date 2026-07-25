@@ -13,6 +13,7 @@
 
 const http = require('http');
 const { addRoute, route, sendJson } = require('./router');
+const store = require('./store');
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
 const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -22,6 +23,9 @@ let routesRegistered = false;
 function registerRoutes() {
   if (routesRegistered) return;
   routesRegistered = true;
+
+  // Storage must exist before any route can serve a request (T2).
+  store.init();
 
   addRoute('GET', '/api/health', (req, res) => {
     sendJson(res, 200, { status: 'ok', uptime: Math.floor(process.uptime()) });

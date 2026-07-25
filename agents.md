@@ -133,7 +133,7 @@ The skeleton everything else plugs into.
 ---
 
 ### T2: JSON storage layer
-**STATUS: TODO**
+**STATUS: DONE**
 
 Durable persistence used by every later task.
 
@@ -424,3 +424,4 @@ number greater than zero.
 
 <!-- Agents append one line here per completed task -->
 - 2026-07-25 T1 DONE — HTTP server & router foundation: `app/package.json` (linkly, stdlib-only), `app/router.js` (addRoute/route/sendJson, params + query, 404/500 JSON), `app/server.js` (createServer, 1 MB body cap → 413, JSON parsing → 400, `/api/health`, PORT||3000), `app/tests/health.test.js`. Smoke suite: 1 passed, 0 failed.
+- 2026-07-25 T2 DONE — JSON storage layer: `app/store.js` (`init`/`read`/`write` + `clearCache`/`dataDir`/`filePath`/`names`, atomic `.tmp`→`renameSync`, mtime-aware in-memory cache, never throws on missing/corrupt files, defaults links/clicks/keys → `{}`), `app/data/.gitkeep`, `store.init()` wired into `server.js`, `app/data/*.json` gitignored, `app/tests/store.test.js`. Smoke suite: 2 passed, 0 failed.
