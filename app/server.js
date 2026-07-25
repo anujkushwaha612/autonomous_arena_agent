@@ -3,6 +3,7 @@ const http = require('http');
 const { WebSocket, WebSocketServer } = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const storage = require('./storage');
+const auth = require('./auth');
 
 const PORT = process.env.PORT || 3000;
 const HISTORY_LIMIT = storage.DEFAULT_LIMIT;
@@ -28,6 +29,51 @@ app.get('/history', (req, res) => {
     roomId: roomId.trim() || storage.DEFAULT_ROOM,
     messages: storage.getMessages(roomId, Number.isNaN(limit) ? HISTORY_LIMIT : limit),
   });
+});
+
+// Create a new user account. Username: 3-20 alphanumeric chars; password: min 6 chars.
+app.post('/register', async (req, res) => {
+  const body = req.body || {};
+  const username = typeof body.username === 'string' ? body.username.trim() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+
+  const USERNAME_PATTERN = /^[a-zA-Z0-9]{3,20}$/;
+  if (!USERNAME_PATTERN.test(username)) {
+    res.status(400).json({
+      success: false,
+      error: 'Username must be 3-20 alphanumeric characters.',
+    });
+    return;
+  }
+
+  if (typeof password !== 'string' || password.length < 6) {
+    res.status(400).json({
+      success: false,
+      error: 'Password must be at least 6 characters long.',
+    });
+    return;
+  }
+
+  if (auth.userExists(username)) {
+    res.status(409).json({ success: false, error: `Username "${username}" is already taken.` });
+    return;
+  }
+
+  try {
+    const user = await auth.register(username, password);
+    console.log(`[http] registered user "${username}"`);
+    res.status(201).json({
+      success: true,
+      user: { username: user.username, joinedAt: user.joinedAt },
+    });
+  } catch (error) {
+    if (error.code === 'USERNAME_TAKEN') {
+      res.status(409).json({ success: false, error: `Username "${username}" is already taken.` });
+      return;
+    }
+    console.error(`[auth] registration failed for "${username}": ${error.message}`);
+    res.status(500).json({ success: false, error: 'Could not register user. Please try again.' });
+  }
 });
 
 const server = http.createServer(app);
