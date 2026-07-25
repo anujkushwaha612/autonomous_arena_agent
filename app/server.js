@@ -101,6 +101,42 @@ app.post('/register', async (req, res) => {
   }
 });
 
+// Get list of all rooms.
+app.get('/rooms', auth.authenticateRequest, (req, res) => {
+  res.json({ success: true, rooms: storage.getRooms() });
+});
+
+// Create a new room.
+app.post('/rooms', auth.authenticateRequest, (req, res) => {
+  const { name } = req.body;
+  if (!name || typeof name !== 'string' || name.trim().length < 2) {
+    return res.status(400).json({ success: false, error: 'Room name must be at least 2 characters.' });
+  }
+  const room = storage.createRoom(name.trim(), req.user.username);
+  console.log(`[http] room "${room.name}" (${room.id}) created by ${req.user.username}`);
+  res.status(201).json({ success: true, room });
+});
+
+// Join a room.
+app.post('/rooms/:id/join', auth.authenticateRequest, (req, res) => {
+  try {
+    const room = storage.joinRoom(req.params.id, req.user.username);
+    res.json({ success: true, room });
+  } catch (error) {
+    res.status(404).json({ success: false, error: error.message });
+  }
+});
+
+// Leave a room.
+app.post('/rooms/:id/leave', auth.authenticateRequest, (req, res) => {
+  try {
+    const room = storage.leaveRoom(req.params.id, req.user.username);
+    res.json({ success: true, room });
+  } catch (error) {
+    res.status(404).json({ success: false, error: error.message });
+  }
+});
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({
   server,
@@ -143,9 +179,14 @@ function sendJson(socket, payload) {
   }
 }
 
-function broadcastJson(payload) {
+function broadcastToRoom(roomId, payload) {
+  const members = storage.getRoomMembers(roomId);
   for (const client of clients.values()) {
-    sendJson(client.socket, payload);
+    // Only send to users who are members of the room.
+    // Note: In a real app, we might also want to track which room the user is currently "viewing".
+    if (client.authUser && members.includes(client.authUser.username)) {
+      sendJson(client.socket, payload);
+    }
   }
 }
 
@@ -259,7 +300,7 @@ wss.on('connection', (socket, req) => {
     console.log(
       `[ws] message ${stored.id} from ${stored.username} in #${stored.roomId} (${clientSummary(client)}): ${stored.content}`,
     );
-    broadcastJson(stored);
+    broadcastToRoom(stored.roomId, stored);
   });
 
   socket.on('error', (error) => {
