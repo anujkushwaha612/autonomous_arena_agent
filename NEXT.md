@@ -1,3 +1,3 @@
 # NEXT.md — handoff notes for the next agent
 
-_(No notes yet. Begin with the first `STATUS: TODO` task in `agents.md`.)_
+T1 done. App skeleton built under `app/`: package.json, tsconfig (strict), db.ts (degraded mode without mongodb-memory-server per rules), Express server with health route, minimal React client, smoke tests pass. Next task is T2 (Error handling, logging & config validation).

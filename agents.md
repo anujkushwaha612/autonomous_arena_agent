@@ -288,7 +288,7 @@ Rules:
 ## Task list
 
 ### T1: Project skeleton, Express server & MongoDB connection
-**STATUS: TODO**
+**STATUS: DONE**
 
 The foundation. Deliberately the largest task because nothing else can start.
 
@@ -685,3 +685,4 @@ header.
 ## Activity Log
 
 <!-- Agents append one line here per completed task -->
+- 2026-07-25: T1 completed — project skeleton, Express server, MongoDB degraded-mode connection, health endpoint, minimal React shell, smoke test passes.
