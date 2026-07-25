@@ -324,7 +324,7 @@ beyond one level is rejected. Delete your scratch script before uploading.
 ---
 
 ### T6: Budgets
-**STATUS: TODO**
+**STATUS: DONE**
 
 **Requirements**
 
@@ -403,3 +403,4 @@ Re-run the T1/T3/T7 committed tests — they must still pass.
 - T3 completed: transaction service (add/get/update/delete/list/balance) with non-zero cents math, ISO YYYY-MM-DD date validation, account existence checks, and paged listing; API routes for `accounts/:id/transactions` (GET/POST), `transactions/:id` (GET/PATCH/DELETE), and `accounts/:id/balance` (GET); CLI commands `tx add|list|delete` and `balance <account>`; committed `pytests/test_transactions.py` covering the 6950-cent balance invariant, zero-amount rejection, and date validation.
 - T4 completed: CSV sniff/parse/import service with row-level errors, bank amount parsing for parentheses/US/EU/CR-DR formats, dedupe by external id or transaction tuple, raw CSV import API, and CLI import/dry-run summary.
 - T5 completed: category CRUD with one-level parent validation and idempotent default seeds; migration v3 rules storage; priority-ordered, case-insensitive substring/validated-regex rule matching and application; category/rule API endpoints; and category/rule CLI commands.
+- T6 completed: migration v4 `budgets` table with a (category_id, period) upsert key; budget service with `set_budget`/`get_status` honouring `YYYY-MM` over the recurring `monthly` default, expense-only spend that excludes transfers and lets refunds reduce it, and `None` (not zero) for unbudgeted categories; GET/PUT `/api/v1/budgets` and GET `/api/v1/budgets/status`; CLI `budget set|status|list` with a text usage bar.

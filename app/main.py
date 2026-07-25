@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, NoReturn
 from urllib.parse import parse_qs
 
-from ledgerly import accounts, categories, importer, transactions
+from ledgerly import accounts, budgets, categories, importer, transactions
 from ledgerly.api import (
     APIError,
     APIResponse,
@@ -411,6 +411,83 @@ def _apply_rules(_params: dict[str, str], body: Any) -> dict[str, int]:
     return {"recategorised": recategorised}
 
 
+def _raise_budget_error(exc: budgets.BudgetError | categories.CategoryError) -> NoReturn:
+    if isinstance(exc, categories.CategoryError):
+        _raise_category_error(exc)
+    if isinstance(exc, budgets.BudgetNotFoundError):
+        raise APIError(404, "budget_not_found", str(exc)) from exc
+    if isinstance(exc, budgets.InvalidPeriodError):
+        raise APIError(400, "invalid_period", str(exc)) from exc
+    if isinstance(exc, budgets.InvalidLimitError):
+        raise APIError(400, "invalid_limit", str(exc)) from exc
+    raise APIError(400, "invalid_budget", str(exc)) from exc
+
+
+def _budget_period_query(*, required: bool) -> str | None:
+    """Read and validate an optional/required ``period`` query parameter."""
+    full_path = _current_path[0] if _current_path else "/"
+    _, query = _parse_path(full_path)
+    unknown = sorted(set(query) - {"period"})
+    if unknown:
+        raise APIError(
+            400,
+            "invalid_request",
+            f"unknown query parameter(s): {', '.join(unknown)}",
+        )
+    if "period" not in query:
+        if required:
+            raise APIError(400, "invalid_request", "period is required")
+        return None
+    try:
+        return budgets.validate_period(_query_single(query, "period"))
+    except budgets.BudgetError as exc:
+        _raise_budget_error(exc)
+
+
+def _list_budgets(_params: dict[str, str], _body: Any) -> list[dict[str, Any]]:
+    """GET /api/v1/budgets with an optional ?period= filter."""
+    period = _budget_period_query(required=False)
+    try:
+        rows = budgets.list_budgets(_connection(), period=period)
+    except budgets.BudgetError as exc:
+        _raise_budget_error(exc)
+    return [budget.to_dict() for budget in rows]
+
+
+def _put_budget(_params: dict[str, str], body: Any) -> dict[str, Any]:
+    """PUT /api/v1/budgets — upsert one budget."""
+    payload = _body_object(body)
+    _reject_unknown_fields(payload, {"category_id", "period", "limit", "limit_cents"})
+    if "limit" in payload and "limit_cents" in payload:
+        raise APIError(400, "invalid_request", "provide only one of limit or limit_cents")
+    for field in ("category_id", "period"):
+        if field not in payload or payload[field] in (None, ""):
+            raise APIError(400, "invalid_request", f"{field} is required")
+    if "limit" not in payload and "limit_cents" not in payload:
+        raise APIError(400, "invalid_request", "limit is required")
+
+    limit_value: Any = payload.get("limit", payload.get("limit_cents"))
+    try:
+        budget = budgets.set_budget(
+            _connection(),
+            payload["category_id"],
+            payload["period"],
+            limit_value,
+        )
+    except (budgets.BudgetError, categories.CategoryError) as exc:
+        _raise_budget_error(exc)
+    return budget.to_dict()
+
+
+def _budget_status(_params: dict[str, str], _body: Any) -> dict[str, Any]:
+    """GET /api/v1/budgets/status?period=YYYY-MM (defaults to this month)."""
+    period = _budget_period_query(required=False) or budgets.current_month()
+    try:
+        return budgets.get_status(_connection(), period)
+    except (budgets.BudgetError, categories.CategoryError) as exc:
+        _raise_budget_error(exc)
+
+
 def _reject_unknown_fields(payload: dict[str, Any], allowed: set[str]) -> None:
     unknown = sorted(set(payload) - allowed)
     if unknown:
@@ -479,6 +556,9 @@ router.add_route("GET", "/api/v1/accounts/:id/transactions", _list_transactions)
 router.add_route("POST", "/api/v1/accounts/:id/transactions", _create_transaction)
 router.add_route("GET", "/api/v1/accounts/:id/balance", _account_balance)
 router.add_route("POST", "/api/v1/accounts/:id/import", _import_transactions)
+router.add_route("GET", "/api/v1/budgets", _list_budgets)
+router.add_route("PUT", "/api/v1/budgets", _put_budget)
+router.add_route("GET", "/api/v1/budgets/status", _budget_status)
 router.add_route("GET", "/api/v1/categories", _list_categories)
 router.add_route("POST", "/api/v1/categories", _create_category)
 router.add_route("GET", "/api/v1/rules", _list_rules)
@@ -497,6 +577,9 @@ class Handler(BaseHTTPRequestHandler):
         self._respond()
 
     def do_PATCH(self) -> None:
+        self._respond()
+
+    def do_PUT(self) -> None:
         self._respond()
 
     def do_DELETE(self) -> None:

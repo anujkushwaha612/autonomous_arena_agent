@@ -76,6 +76,20 @@ def migrate(conn: sqlite3.Connection) -> None:
                 "CREATE INDEX IF NOT EXISTS idx_rules_priority ON rules(priority DESC, id ASC)"
             )
             conn.execute("UPDATE schema_version SET version = 3")
+            version = 3
+
+        if version < 4:
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS budgets (
+                    id INTEGER PRIMARY KEY,
+                    category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+                    period TEXT NOT NULL,
+                    limit_cents INTEGER NOT NULL,
+                    UNIQUE (category_id, period)
+                )"""
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_budgets_period ON budgets(period)")
+            conn.execute("UPDATE schema_version SET version = 4")
 
 
 def init_db(path: Optional[str] = None) -> sqlite3.Connection:

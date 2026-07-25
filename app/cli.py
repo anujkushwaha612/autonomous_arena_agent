@@ -6,9 +6,9 @@ import os
 from pathlib import Path
 from typing import NoReturn, Sequence
 
-from ledgerly import accounts, categories, importer, transactions
+from ledgerly import accounts, budgets, categories, importer, transactions
 from ledgerly.db import init_db
-from ledgerly.models import Account, Category, Rule, Transaction
+from ledgerly.models import Account, Budget, Category, Rule, Transaction
 
 _BALANCE_FIELD = "balance_cents"
 
@@ -110,6 +110,23 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="also re-evaluate transactions that already have a category",
     )
+
+    budget_parser = subcommands.add_parser("budget", help="manage budgets")
+    budget_commands = budget_parser.add_subparsers(dest="budget_command", required=True)
+    budget_set = budget_commands.add_parser("set", help="set or replace a budget")
+    budget_set.add_argument("category", type=int, help="category id")
+    budget_set.add_argument(
+        "period",
+        help="'monthly' for a recurring budget, or a specific YYYY-MM month",
+    )
+    budget_set.add_argument("limit", help="limit in major units, e.g. 250.00")
+    budget_status = budget_commands.add_parser("status", help="show budget usage")
+    budget_status.add_argument(
+        "--period",
+        default=None,
+        help="YYYY-MM month (defaults to the current month)",
+    )
+    budget_commands.add_parser("list", help="list stored budgets")
     return parser
 
 
@@ -136,6 +153,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     if args.command == "rule":
         _run_rule(args, parser)
+        return
+    if args.command == "budget":
+        _run_budget(args, parser)
         return
     parser.print_help()
 
@@ -318,6 +338,97 @@ def _run_rule(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None
             print(f"Recategorised {count} transaction(s).")
     finally:
         connection.close()
+
+
+def _run_budget(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    connection = init_db()
+    try:
+        if args.budget_command == "set":
+            try:
+                budget = budgets.set_budget(
+                    connection, args.category, args.period, args.limit
+                )
+            except (budgets.BudgetError, categories.CategoryError) as exc:
+                _cli_error(parser, str(exc))
+            print(
+                f"Budget for category {budget.category_id} in {budget.period}: "
+                f"{_format_cents(budget.limit_cents)}"
+            )
+        elif args.budget_command == "list":
+            _print_budget_table(budgets.list_budgets(connection))
+        elif args.budget_command == "status":
+            period = args.period or budgets.current_month()
+            try:
+                status = budgets.get_status(connection, period)
+            except (budgets.BudgetError, categories.CategoryError) as exc:
+                _cli_error(parser, str(exc))
+            _print_budget_status(status)
+    finally:
+        connection.close()
+
+
+def _print_budget_table(budget_list: list[Budget]) -> None:
+    if not budget_list:
+        print("No budgets.")
+        return
+    rows = [
+        [
+            str(budget.id),
+            str(budget.category_id),
+            budget.period,
+            _format_cents(budget.limit_cents),
+        ]
+        for budget in budget_list
+    ]
+    headers = ["ID", "CATEGORY", "PERIOD", "LIMIT"]
+    widths = [
+        max(len(headers[index]), *(len(row[index]) for row in rows))
+        for index in range(len(headers))
+    ]
+    print(_format_row(headers, widths))
+    print(_format_row(["-" * width for width in widths], widths))
+    for row in rows:
+        print(_format_row(row, widths))
+
+
+def _budget_bar(pct: float | None, width: int = 20) -> str:
+    """Render a simple text usage bar; unbudgeted categories show no bar."""
+    if pct is None:
+        return "-" * width
+    filled = int(round(min(max(pct, 0.0), 100.0) / 100 * width))
+    return "#" * filled + "." * (width - filled)
+
+
+def _print_budget_status(status: dict[str, object]) -> None:
+    period = str(status["period"])
+    month = str(status["month"])
+    label = period if period == month else f"{period} (month {month})"
+    print(f"Budget status for {label}")
+    category_rows = list(status["categories"])  # type: ignore[arg-type]
+    total = dict(status["total"])  # type: ignore[arg-type]
+    rows: list[list[str]] = []
+    for entry in [*category_rows, total]:
+        row = dict(entry)  # type: ignore[arg-type]
+        pct = row["pct"]
+        rows.append(
+            [
+                str(row["category"]),
+                "-" if row["limit"] is None else str(row["limit"]),
+                str(row["spent"]),
+                "-" if row["remaining"] is None else str(row["remaining"]),
+                "-" if pct is None else f"{float(pct):.1f}%",
+                _budget_bar(None if pct is None else float(pct)),
+            ]
+        )
+    headers = ["CATEGORY", "LIMIT", "SPENT", "REMAINING", "PCT", "USAGE"]
+    widths = [
+        max(len(headers[index]), *(len(row[index]) for row in rows))
+        for index in range(len(headers))
+    ]
+    print(_format_row(headers, widths))
+    print(_format_row(["-" * width for width in widths], widths))
+    for row in rows:
+        print(_format_row(row, widths))
 
 
 def _print_account(account: Account) -> None:

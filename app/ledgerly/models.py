@@ -83,3 +83,20 @@ class Rule:
             "priority": self.priority,
             "is_regex": self.is_regex,
         }
+
+
+@dataclass(frozen=True)
+class Budget:
+    id: int
+    category_id: int
+    period: str
+    limit_cents: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "category_id": self.category_id,
+            "period": self.period,
+            "limit": _money(self.limit_cents),
+            "limit_cents": self.limit_cents,
+        }
