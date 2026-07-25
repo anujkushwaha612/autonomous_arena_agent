@@ -62,7 +62,7 @@ Add message send/receive functionality.
 ---
 
 ### T3: Basic Chat Client UI
-**STATUS: TODO**
+**STATUS: DONE**
 
 Create the frontend chat interface.
 
@@ -435,4 +435,5 @@ Add file sharing and search functionality.
 <!-- Agents append one line here per completed task -->
 - 2026-07-25: Completed T1 WebSocket Server Foundation with Express HTTP server, ws connection tracking, lifecycle logging, and package metadata.
 - 2026-07-25: Completed T2 Basic Message Broadcasting with validated incoming chat messages, UUID/timestamp enrichment, broadcast to all connected clients, and message logging.
+- 2026-07-25: Completed T3 Basic Chat Client UI with a responsive WebSocket chat page, username prompt, connection status, safe message rendering, and reconnect handling.
 

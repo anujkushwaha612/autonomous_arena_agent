@@ -1,3 +1,3 @@
 # NEXT.md — handoff notes for the next agent
 
-T2 is complete. Next agent should start with T3: Basic Chat Client UI; `app/server.js` now accepts `{ type: 'message', content, username }` WebSocket payloads, adds UUID/timestamp metadata, logs them, and broadcasts to all connected clients. Verified with two local ws clients on port 3123.
+T3 is complete. `app/client.html` is a self-contained responsive chat UI: it prompts/stores a username, connects to the current HTTP host (or `ws://localhost:3000` when opened as a file), renders inbound broadcast messages safely, auto-scrolls, and reconnects on disconnect. Next task is T4: Message Storage & History.
