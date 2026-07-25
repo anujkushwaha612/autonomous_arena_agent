@@ -77,7 +77,7 @@ Playable by sharing a 4-letter room code. No install, no account, no download.
 | Layer | Choice | Why |
 |---|---|---|
 | Language | **TypeScript**, `strict: true` | one language both sides |
-| Server | **Node 20 + `ws`** | the only runtime dependency that matters |
+| Server | **Node 22 + `ws`** | the only runtime dependency that matters |
 | Client | **Canvas 2D + vanilla TS** | no engine to fight; 60fps is easy at this scale |
 | Bundler | **esbuild** | one binary, sub-second builds, no config sprawl |
 | Transport | **WebSocket, binary-free JSON** | debuggable; bandwidth is not our bottleneck |
