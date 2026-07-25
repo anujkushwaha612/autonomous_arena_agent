@@ -130,19 +130,73 @@ npm start       # production: build client, serve everything on ONE port
   command and waits for that one port — if `npm start` needs two ports or a
   separate build step, every later task fails.
 
+### Dependencies and secrets on the test machine
+
+The pipeline installs your dependencies automatically before running the smoke
+tests (`npm ci`, falling back to `npm install`). You do **not** need to commit
+`node_modules` — never do that.
+
+Two consequences you must design for:
+
+- **Keep the dependency list small and mainstream.** Every package is installed
+  on the operator's machine on every round where the manifest changed. Avoid
+  anything requiring native compilation or a postinstall download.
+- **The app must boot with NO secrets present.** `app/.env` is gitignored and
+  will usually be absent. If `MONGODB_URI` is unset the server must start
+  anyway on the in-memory fallback. A server that exits because a credential is
+  missing fails the gate and blocks every later task.
+
+Ship `app/.env.example` with placeholder values and document each variable. The
+operator copies it to `app/.env` and fills in real credentials; the runner loads
+that file automatically when booting the app.
+
 ### Database rules
 
 1. **Connection string comes from `process.env.MONGODB_URI`.** Never hard-code
-   it, never commit a real one.
-2. **If `MONGODB_URI` is unset, fall back to `mongodb-memory-server`** and log a
-   clear warning. This is what makes the app testable on a machine with no
-   MongoDB installed — including the pipeline's own test runner. This fallback
-   is required, not optional.
-3. Every model gets explicit `timestamps: true`, and indexes on any field used
-   for lookup or sort.
-4. Mongo `_id` is exposed to clients as `id` (string). Never leak `__v`.
-5. Use a transaction (or a single atomic update) whenever two documents must
+   it, never commit a real one. Document it in `app/.env.example`.
+2. **The server MUST start with no database available.** If `MONGODB_URI` is
+   unset, do **not** crash and do **not** download an embedded MongoDB. Start in
+   a degraded mode and say so:
+   - connect lazily, and mark the app `db: 'unavailable'`
+   - every route that needs the database returns
+     `503 { "error": { "code": "DB_UNAVAILABLE", ... } }`
+   - `GET /api/v1/health` still returns `200` with `db: 'unavailable'`
+   This is what lets the pipeline verify your routing, validation and error
+   handling on a machine with no MongoDB installed.
+3. **Do not add `mongodb-memory-server`.** It downloads a ~200 MB `mongod`
+   binary, caches it inside `node_modules` (wiped on every reinstall), and
+   picks a build by OS version — it hard-fails on newer Linux and can crash in
+   restricted environments. It makes rounds slow and flaky for no benefit.
+4. **Write tests at two levels.**
+   - *Always runnable*: routing, validation, error envelopes, pure functions
+     (1RM maths, plate breakdown, CSV quoting). These must pass with
+     `db: 'unavailable'` and are what every task is judged on.
+   - *Database-dependent*: if a test genuinely needs persistence, skip it
+     cleanly when the database is absent:
+     ```js
+     const h = await t.get('/api/v1/health');
+     if (h.json.db === 'unavailable') { console.log('   ⏭ skipped (no database)'); return; }
+     ```
+     A skipped test must **pass**, not fail. Never make a task's success depend
+     on infrastructure the operator has not configured.
+5. Every model gets `timestamps: true` and indexes on any field used for lookup
+   or sort.
+6. Mongo `_id` is exposed to clients as `id` (string). Never leak `__v`.
+7. Use a transaction (or a single atomic update) whenever two documents must
    change together. Never leave orphaned sets behind a deleted session.
+
+### How the operator runs this for real
+
+The pipeline proves the code is correct without a database. You then point it at
+a real one:
+
+```bash
+cp app/.env.example app/.env      # then paste your Atlas URI into app/.env
+npm --prefix app run dev
+```
+
+`app/.env` is gitignored and is loaded automatically by the smoke runner too, so
+once it exists the database-dependent tests stop skipping and actually run.
 
 ### Non-negotiable engineering rules
 

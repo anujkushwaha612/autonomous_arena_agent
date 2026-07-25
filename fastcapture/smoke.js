@@ -13,7 +13,7 @@
  * Exit 0 = all passed, 1 = something failed.
  */
 
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const net = require('net');
 const path = require('path');
@@ -26,8 +26,11 @@ const APP_DIR = process.env.APP_DIR || path.join(REPO_ROOT, WORK_DIR);
 const SMOKE_CMD = process.env.SMOKE_CMD ?? 'npm start';
 const TEST_DIR = process.env.TEST_DIR || path.join(APP_DIR, 'tests');
 const PORT = Number(process.env.SMOKE_PORT || 3000);
-const BOOT_TIMEOUT_MS = Number(process.env.SMOKE_BOOT_MS || 30000);
+const BOOT_TIMEOUT_MS = Number(process.env.SMOKE_BOOT_MS || 120000);
 const TEST_TIMEOUT_MS = Number(process.env.SMOKE_TEST_MS || 20000);
+const INSTALL_TIMEOUT_MS = Number(process.env.SMOKE_INSTALL_MS || 300000);
+// Shared, persistent cache for any embedded-database binary the product uses.
+const MONGO_CACHE_DIR = path.join(REPO_ROOT, '.cache', 'mongodb-binaries');
 
 function makeContext() {
   const http = require('http');
@@ -127,7 +130,20 @@ function startServer() {
   const child = spawn(SMOKE_CMD, {
     cwd: APP_DIR,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, PORT: String(PORT), NODE_ENV: 'test' },
+    env: {
+      ...process.env,
+      // Persist the mongodb-memory-server binary OUTSIDE node_modules.
+      // It defaults to node_modules/.cache, which is ~212 MB and is wiped every
+      // time dependencies are reinstalled — so every round would re-download it.
+      MONGOMS_DOWNLOAD_DIR: process.env.MONGOMS_DOWNLOAD_DIR || MONGO_CACHE_DIR,
+      // Pin the mongod build. The library's default (6.0.x) has no binary for
+      // Debian 12+/13 and dies with KnownVersionIncompatibilityError, which
+      // looks like the agent's bug but is purely an environment mismatch.
+      MONGOMS_VERSION: process.env.MONGOMS_VERSION || '7.0.14',
+      ...loadDotEnv(APP_DIR),
+      PORT: String(PORT),
+      NODE_ENV: 'test',
+    },
     shell: true,
   });
   let out = '';
@@ -151,6 +167,119 @@ function stopServer(child) {
   });
 }
 
+
+/**
+ * Install the product's dependencies before booting it.
+ *
+ * The agent installs packages inside ITS sandbox, but node_modules is
+ * gitignored — correctly, it must never be committed. So the patch that lands
+ * on this machine has package.json and source but no dependencies, and
+ * `npm start` dies with MODULE_NOT_FOUND on the first require('express').
+ *
+ * We install here, once, and only when the lockfile/manifest has changed.
+ */
+
+/**
+ * Load app/.env into the environment the app is booted with.
+ *
+ * This is what lets you drop a real MONGODB_URI into app/.env and have the
+ * smoke tests exercise your actual database. The file is gitignored, so the
+ * credential never reaches an agent or a commit — it exists only on your
+ * machine, and only for the duration of the boot.
+ *
+ * Deliberately a tiny parser: no dependency, and the runner must work before
+ * the product has installed anything.
+ */
+function loadDotEnv(appDir) {
+  const envPath = path.join(appDir, '.env');
+  if (!fs.existsSync(envPath)) return {};
+  const out = {};
+  let raw;
+  try { raw = fs.readFileSync(envPath, 'utf8'); } catch { return {}; }
+  for (const line of raw.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) continue;
+    const eq = t.indexOf('=');
+    if (eq < 1) continue;
+    const key = t.slice(0, eq).trim();
+    let val = t.slice(eq + 1).trim();
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1);
+    }
+    // A real shell env var always wins over the file.
+    if (!(key in process.env)) out[key] = val;
+  }
+  return out;
+}
+
+function ensureDeps(appDir, log) {
+  const pkgPath = path.join(appDir, 'package.json');
+  if (!fs.existsSync(pkgPath)) return true;
+
+  let pkg;
+  try { pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')); } catch { return true; }
+  const deps = Object.keys({ ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) });
+  if (!deps.length) return true; // stdlib-only project — nothing to do
+
+  // Skip the install if node_modules already satisfies the manifest.
+  const stampPath = path.join(appDir, 'node_modules', '.smoke-install-stamp');
+  const manifest = ['package.json', 'package-lock.json', 'pnpm-lock.yaml', 'yarn.lock']
+    .map((f) => {
+      const abs = path.join(appDir, f);
+      return fs.existsSync(abs) ? `${f}:${fs.statSync(abs).mtimeMs}` : '';
+    })
+    .join('|');
+
+  if (fs.existsSync(stampPath)) {
+    try {
+      if (fs.readFileSync(stampPath, 'utf8') === manifest) return true;
+    } catch {}
+  }
+
+  const hasLock = fs.existsSync(path.join(appDir, 'package-lock.json'));
+  const cmd = hasLock ? 'npm ci --no-audit --no-fund' : 'npm install --no-audit --no-fund';
+  log(`  📦 installing dependencies (${deps.length} package(s))… this may take a minute`);
+
+  try {
+    execSync(cmd, {
+      cwd: appDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: INSTALL_TIMEOUT_MS,
+      env: { ...process.env, CI: 'true' },
+    });
+  } catch (e) {
+    // `npm ci` is strict: it fails if the lockfile is out of sync with
+    // package.json. Fall back to a plain install rather than failing the round.
+    if (hasLock) {
+      log('  ⚠️  npm ci failed — retrying with npm install');
+      try {
+        execSync('npm install --no-audit --no-fund', {
+          cwd: appDir,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: INSTALL_TIMEOUT_MS,
+          env: { ...process.env, CI: 'true' },
+        });
+      } catch (e2) {
+        log(`  ❌ dependency install failed: ${String(e2.stderr || e2.message).split('\n').slice(-6).join(' ')}`);
+        return false;
+      }
+    } else {
+      log(`  ❌ dependency install failed: ${String(e.stderr || e.message).split('\n').slice(-6).join(' ')}`);
+      return false;
+    }
+  }
+
+  try {
+    fs.mkdirSync(path.join(appDir, 'node_modules'), { recursive: true });
+    fs.writeFileSync(stampPath, manifest);
+  } catch {}
+  log('  ✅ dependencies installed');
+  return true;
+}
+
 async function main() {
   if (!fs.existsSync(APP_DIR)) {
     console.log(`  ⏭  no ${WORK_DIR}/ directory yet — nothing to smoke test.`);
@@ -165,6 +294,11 @@ async function main() {
   if (!files.length) {
     console.log('  ⚠️  no *.test.js files found — skipping.');
     return 0;
+  }
+
+  if (!ensureDeps(APP_DIR, (m) => console.log(m))) {
+    console.log('  ── smoke: could not install dependencies ──\n');
+    return 1;
   }
 
   const needsServer = Boolean(SMOKE_CMD && SMOKE_CMD.trim());
