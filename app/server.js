@@ -14,11 +14,25 @@
 const http = require('http');
 const { addRoute, route, sendJson } = require('./router');
 const store = require('./store');
+const links = require('./links');
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
 const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 let routesRegistered = false;
+
+/** Build an absolute short URL from the request Host header + a code. */
+function buildShortUrl(req, code) {
+  const host = (req && req.headers && req.headers.host) || '';
+  if (host) return `http://${host}/${code}`;
+  return `/${code}`;
+}
+
+/** Send a redirect with no body (used by GET /:code). */
+function sendRedirect(res, status, location) {
+  res.writeHead(status, { Location: location, 'Content-Length': '0' });
+  res.end();
+}
 
 function registerRoutes() {
   if (routesRegistered) return;
@@ -29,6 +43,68 @@ function registerRoutes() {
 
   addRoute('GET', '/api/health', (req, res) => {
     sendJson(res, 200, { status: 'ok', uptime: Math.floor(process.uptime()) });
+  });
+
+  // --- T3: links CRUD ---
+
+  // Create a link. Returns 201 with the link + an absolute shortUrl.
+  addRoute('POST', '/api/links', (req, res) => {
+    const body = req.body || {};
+    let link;
+    try {
+      link = links.createLink({ url: body.url, alias: body.alias });
+    } catch (err) {
+      switch (err.code) {
+        case 'INVALID_URL':
+          return sendJson(res, 400, { error: 'Invalid URL' });
+        case 'INVALID_ALIAS':
+          return sendJson(res, 400, { error: 'Invalid alias' });
+        case 'ALIAS_TAKEN':
+          return sendJson(res, 409, { error: 'Alias already in use' });
+        default:
+          console.error('[links] create failed:', err.message);
+          return sendJson(res, 500, { error: 'Internal server error' });
+      }
+    }
+    sendJson(res, 201, {
+      code: link.code,
+      url: link.url,
+      shortUrl: buildShortUrl(req, link.code),
+      createdAt: link.createdAt,
+    });
+  });
+
+  // List all links (newest first).
+  addRoute('GET', '/api/links', (req, res) => {
+    const all = links.listLinks();
+    sendJson(res, 200, { links: all, total: all.length });
+  });
+
+  // Fetch one link by code.
+  addRoute('GET', '/api/links/:code', (req, res) => {
+    const link = links.getLink(req.params.code);
+    if (!link) return sendJson(res, 404, { error: 'Not found' });
+    sendJson(res, 200, link);
+  });
+
+  // Delete one link by code. 204 with no body, or 404.
+  addRoute('DELETE', '/api/links/:code', (req, res) => {
+    const removed = links.deleteLink(req.params.code);
+    if (!removed) return sendJson(res, 404, { error: 'Not found' });
+    res.writeHead(204, { 'Content-Length': '0' });
+    res.end();
+  });
+
+  // Public redirect. Reserved codes never resolve to a link, so they 404
+  // rather than shadow the matching one-segment routes.
+  addRoute('GET', '/:code', (req, res) => {
+    const code = req.params.code;
+    if (links.isReserved(code)) {
+      return sendJson(res, 404, { error: 'Not found' });
+    }
+    const link = links.getLink(code);
+    if (!link) return sendJson(res, 404, { error: 'Not found' });
+    sendRedirect(res, 302, link.url);
   });
 }
 
