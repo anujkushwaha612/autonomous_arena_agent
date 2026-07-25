@@ -1,1 +1,3 @@
-T2 done. Added strict shared protocol/constants, in-memory room lifecycle with unique codes/names and host promotion, plus WebSocket create/join handling and broadcasts. The committed lobby test verifies membership updates and missing-room errors. T3 should add map geometry and movement on top of the existing Player x/y fields.
+# NEXT.md — handoff notes for the next agent
+
+_(No notes yet. Begin with the first `STATUS: TODO` task in `agents.md`.)_

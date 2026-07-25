@@ -276,7 +276,7 @@ Committed test files:
 ## Task list
 
 ### T1: Server skeleton, static hosting & build
-**STATUS: DONE**
+**STATUS: TODO**
 
 Nothing else can start without this.
 
@@ -303,7 +303,7 @@ source.
 ---
 
 ### T2: Rooms, join/create & lobby state
-**STATUS: DONE**
+**STATUS: TODO**
 
 **Requirements**
 
@@ -861,34 +861,6 @@ round.
 
 ---
 
-## Plan revisions
-
-One revision, made before T1 started, after an audit for missing features:
-
-- **Added T17 (HUD, interaction layer & ghost UX)** — the plan simulated the
-  game correctly but never specified the task list panel, context-action
-  button, cooldown dials, map overlay, countdown clock sync or the ghost and
-  death states. Nothing was going to build the screen the player looks at.
-- **Added T18 (public lobby browser & quick join)** — a 4-letter code assumes
-  you already have friends waiting; a solo visitor had no path into a game.
-- **Added T19 (moderation, AFK & text safety)** — kick/ban, AFK skipping and
-  chat/name sanitising. Also fixes an unhandled case: a player leaving
-  mid-game and its effect on task progress and win conditions.
-- **Added T20 (second map & map registry)** — one hard-coded map is a demo;
-  the registry keeps map data out of game logic while the protocol is still
-  soft.
-- **Renumbered deployment/acceptance T17 → T21** and extended it with a bot
-  flag, a browser/mobile support matrix and the full committed-test list.
-- Smaller gaps folded into existing tasks: role-reveal splash and spawn points
-  (T5), common-task count (T7), `doors` expiry and per-map sabotage kinds (T9),
-  emergency-button proximity (T12), the new settings (T14), phase gating as
-  validation (T15), responsive/portrait layout (T16), and a server-clock
-  `ping`/`pong` pair in the protocol.
-
----
-
 ## Activity Log
 
 <!-- Agents append one line here per completed task -->
-- 2026-07-25 T1 completed: server skeleton, build, health endpoint, basic static hosting.
-- 2026-07-25 T2 completed: room lifecycle, validated join/create WebSocket protocol, and lobby smoke test.
