@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, NoReturn
 from urllib.parse import parse_qs
 
-from ledgerly import accounts, transactions
+from ledgerly import accounts, importer, transactions
 from ledgerly.api import (
     APIError,
     APIResponse,
@@ -87,6 +87,14 @@ def _raise_transaction_error(exc: transactions.TransactionError) -> NoReturn:
     if isinstance(exc, transactions.InvalidAmountError):
         raise APIError(400, "invalid_amount", str(exc)) from exc
     raise APIError(400, "invalid_transaction", str(exc)) from exc
+
+
+def _raise_importer_error(exc: importer.ImporterError) -> NoReturn:
+    if isinstance(exc, importer.ImportAccountError):
+        raise APIError(404, "account_not_found", str(exc)) from exc
+    if isinstance(exc, importer.MappingError):
+        raise APIError(400, "invalid_import_mapping", str(exc)) from exc
+    raise APIError(400, "invalid_import", str(exc)) from exc
 
 
 def _health(_params: dict[str, str], _body: Any) -> dict[str, str]:
@@ -310,6 +318,25 @@ def _account_balance(params: dict[str, str], _body: Any) -> dict[str, Any]:
     return {"account_id": _account_id(params), "balance_cents": cents}
 
 
+def _import_transactions(params: dict[str, str], body: Any) -> dict[str, Any]:
+    if not isinstance(body, str):
+        raise APIError(400, "invalid_request", "CSV body must be text")
+    account_id = _account_id(params)
+    try:
+        detected = importer.sniff(body)
+        rows, errors = importer.parse(body, detected["mapping"])
+        summary = importer.import_rows(_connection(), account_id, rows)
+    except importer.ImporterError as exc:
+        _raise_importer_error(exc)
+    return {
+        "account_id": account_id,
+        "parsed": len(rows),
+        "imported": summary["imported"],
+        "skipped": summary["skipped"],
+        "errors": errors,
+    }
+
+
 def _reject_unknown_fields(payload: dict[str, Any], allowed: set[str]) -> None:
     unknown = sorted(set(payload) - allowed)
     if unknown:
@@ -358,6 +385,11 @@ def _parse_int_param(
     return value
 
 
+def _is_import_route(route: str) -> bool:
+    parts = route.strip("/").split("/")
+    return len(parts) == 5 and parts[:3] == ["api", "v1", "accounts"] and parts[4] == "import"
+
+
 # Holds the current request's full path so query string parsing is available
 # inside route handlers that take only ``(params, body)``. Set by Handler.
 _current_path: list[str] = []
@@ -372,6 +404,7 @@ router.add_route("POST", "/api/v1/accounts/:id/archive", _archive_account)
 router.add_route("GET", "/api/v1/accounts/:id/transactions", _list_transactions)
 router.add_route("POST", "/api/v1/accounts/:id/transactions", _create_transaction)
 router.add_route("GET", "/api/v1/accounts/:id/balance", _account_balance)
+router.add_route("POST", "/api/v1/accounts/:id/import", _import_transactions)
 router.add_route("GET", "/api/v1/transactions/:id", _get_transaction)
 router.add_route("PATCH", "/api/v1/transactions/:id", _update_transaction)
 router.add_route("DELETE", "/api/v1/transactions/:id", _delete_transaction)
@@ -392,16 +425,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def _respond(self) -> None:
         body: Any = None
+        route = self.path.split("?", 1)[0]
         if self.command in {"POST", "PATCH", "PUT", "DELETE"}:
             try:
-                body = self._read_json_body()
+                if self.command == "POST" and _is_import_route(route):
+                    body = self._read_text_body()
+                else:
+                    body = self._read_json_body()
             except PayloadTooLargeError as exc:
                 self._send_json(413, error("payload_too_large", str(exc)))
                 return
             except ValueError as exc:
-                self._send_json(400, error("invalid_json", str(exc)))
+                code = "invalid_request" if _is_import_route(route) else "invalid_json"
+                self._send_json(400, error(code, str(exc)))
                 return
-        route = self.path.split("?", 1)[0]
         _current_path.clear()
         _current_path.append(self.path)
         try:
@@ -414,6 +451,15 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(status, payload)
 
     def _read_json_body(self) -> Any:
+        return router.parse_json(self._read_raw_body())
+
+    def _read_text_body(self) -> str:
+        try:
+            return self._read_raw_body().decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise ValueError("request body must be UTF-8 text") from exc
+
+    def _read_raw_body(self) -> bytes:
         raw_length = self.headers.get("Content-Length", "0")
         try:
             length = int(raw_length)
@@ -423,7 +469,7 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("invalid Content-Length")
         if length > MAX_BODY_BYTES:
             raise PayloadTooLargeError("request body exceeds 1 MB")
-        return router.parse_json(self.rfile.read(length))
+        return self.rfile.read(length)
 
     def _send_json(self, status: int, payload: dict[str, Any]) -> None:
         data = json.dumps(payload, separators=(",", ":")).encode("utf-8")

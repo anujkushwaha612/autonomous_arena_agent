@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 from typing import NoReturn, Sequence
 
-from ledgerly import accounts, transactions
+from ledgerly import accounts, importer, transactions
 from ledgerly.db import init_db
 from ledgerly.models import Account, Transaction
 
@@ -77,6 +78,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
     balance_parser = subcommands.add_parser("balance", help="show account balance")
     balance_parser.add_argument("account", type=int, help="account id")
+
+    import_parser = subcommands.add_parser("import", help="import transactions from CSV")
+    import_parser.add_argument("account", type=int, help="account id")
+    import_parser.add_argument("file", help="CSV file path")
+    import_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="parse and report without inserting transactions",
+    )
     return parser
 
 
@@ -94,6 +104,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     if args.command == "balance":
         _run_balance(args, parser)
+        return
+    if args.command == "import":
+        _run_import(args, parser)
         return
     parser.print_help()
 
@@ -202,6 +215,33 @@ def _run_balance(args: argparse.Namespace, parser: argparse.ArgumentParser) -> N
         connection.close()
 
 
+def _run_import(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    try:
+        csv_text = Path(args.file).read_text(encoding="utf-8-sig")
+        detected = importer.sniff(csv_text)
+        rows, errors = importer.parse(csv_text, detected["mapping"])
+    except (OSError, importer.ImporterError) as exc:
+        _cli_error(parser, str(exc))
+
+    if args.dry_run:
+        _print_import_summary(
+            {"imported": 0, "skipped": 0}, len(rows), len(errors), dry_run=True
+        )
+        _print_import_errors(errors)
+        return
+
+    connection = init_db()
+    try:
+        try:
+            summary = importer.import_rows(connection, args.account, rows)
+        except importer.ImporterError as exc:
+            _cli_error(parser, str(exc))
+        _print_import_summary(summary, len(rows), len(errors), dry_run=False)
+        _print_import_errors(errors)
+    finally:
+        connection.close()
+
+
 def _print_account(account: Account) -> None:
     data = account.to_dict()
     for label, key in (
@@ -274,6 +314,32 @@ def _print_transaction_list(
     print(_format_row(["-" * width for width in widths], widths))
     for row in table:
         print(_format_row(row, widths))
+
+
+def _print_import_summary(summary: dict[str, int], parsed: int, errors: int, *, dry_run: bool) -> None:
+    rows = [["parsed", str(parsed)], ["errors", str(errors)]]
+    if dry_run:
+        rows.append(["would_import", str(parsed)])
+    else:
+        rows.append(["imported", str(summary["imported"])])
+        rows.append(["skipped", str(summary["skipped"])])
+    headers = ["METRIC", "COUNT"]
+    widths = [
+        max(len(headers[index]), *(len(row[index]) for row in rows))
+        for index in range(len(headers))
+    ]
+    print(_format_row(headers, widths))
+    print(_format_row(["-" * width for width in widths], widths))
+    for row in rows:
+        print(_format_row(row, widths))
+
+
+def _print_import_errors(errors: list[importer.RowError]) -> None:
+    if not errors:
+        return
+    print("Errors:")
+    for error in errors:
+        print(f"row {error['row']}: {error['error']}")
 
 
 def _format_cents(cents: int) -> str:

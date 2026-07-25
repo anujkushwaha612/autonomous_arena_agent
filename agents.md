@@ -276,7 +276,7 @@ works. Money maths is the one thing a later task must never silently break.
 ---
 
 ### T4: CSV import
-**STATUS: TODO**
+**STATUS: DONE**
 
 **Requirements**
 
@@ -401,3 +401,4 @@ Re-run the T1/T3/T7 committed tests — they must still pass.
 - T1 completed: SQLite schema, models, router, health API, CLI skeleton, and migration test.
 - T2 completed: account CRUD/archive services, v2 archive migration, account API routes, and CLI commands.
 - T3 completed: transaction service (add/get/update/delete/list/balance) with non-zero cents math, ISO YYYY-MM-DD date validation, account existence checks, and paged listing; API routes for `accounts/:id/transactions` (GET/POST), `transactions/:id` (GET/PATCH/DELETE), and `accounts/:id/balance` (GET); CLI commands `tx add|list|delete` and `balance <account>`; committed `pytests/test_transactions.py` covering the 6950-cent balance invariant, zero-amount rejection, and date validation.
+- T4 completed: CSV sniff/parse/import service with row-level errors, bank amount parsing for parentheses/US/EU/CR-DR formats, dedupe by external id or transaction tuple, raw CSV import API, and CLI import/dry-run summary.
