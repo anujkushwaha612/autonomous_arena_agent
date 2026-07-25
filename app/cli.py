@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
-from typing import NoReturn, Sequence
+from typing import Any, NoReturn, Sequence
 
-from ledgerly import accounts, budgets, categories, importer, reports, transactions
+from ledgerly import accounts, budgets, categories, exporter, importer, reports, transactions
 from ledgerly.db import init_db
 from ledgerly.models import Account, Budget, Category, Rule, Transaction
 
@@ -15,7 +18,13 @@ _BALANCE_FIELD = "balance_cents"
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ledgerly")
-    parser.add_argument("--version", action="version", version="Ledgerly 1")
+    parser.add_argument("--version", action="store_true", help="show version information")
+    parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="wrap command output in a machine-readable JSON object",
+    )
     subcommands = parser.add_subparsers(dest="command")
     subcommands.add_parser("health", help="show database health")
 
@@ -149,43 +158,62 @@ def _build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--end", default=None, help="YYYY-MM-DD")
     search_parser.add_argument("--min-cents", type=int, default=None)
     search_parser.add_argument("--max-cents", type=int, default=None)
+
+    reconcile_parser = subcommands.add_parser("reconcile", help="reconcile an account to a statement")
+    reconcile_parser.add_argument("account", type=int, help="account id")
+    reconcile_parser.add_argument("statement", help="statement closing balance in major units")
+    reconcile_parser.add_argument("--as-of", required=True, help="statement date (YYYY-MM-DD)")
+
+    export_parser = subcommands.add_parser("export", help="export the full ledger")
+    export_parser.add_argument("--format", choices=("json", "csv"), default="json")
+    export_parser.add_argument("--output", help="write export to this file instead of standard output")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.version:
+        version = {"version": "Ledgerly 1"}
+        print(json.dumps(version) if args.json_output else version["version"])
+        return
+    if args.json_output:
+        output = StringIO()
+        with redirect_stdout(output):
+            _run_command(args, parser)
+        print(json.dumps({"output": output.getvalue().rstrip("\n")}, ensure_ascii=False))
+        return
+    _run_command(args, parser)
+
+
+def _run_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    """Run one parsed command using the traditional human-readable formatter."""
     if args.command == "health":
         _health()
-        return
-    if args.command == "account":
+    elif args.command == "account":
         _run_account(args, parser)
-        return
-    if args.command == "tx":
+    elif args.command == "tx":
         _run_tx(args, parser)
-        return
-    if args.command == "balance":
+    elif args.command == "balance":
         _run_balance(args, parser)
-        return
-    if args.command == "import":
+    elif args.command == "import":
         _run_import(args, parser)
-        return
-    if args.command == "category":
+    elif args.command == "category":
         _run_category(args, parser)
-        return
-    if args.command == "rule":
+    elif args.command == "rule":
         _run_rule(args, parser)
-        return
-    if args.command == "budget":
+    elif args.command == "budget":
         _run_budget(args, parser)
-        return
-    if args.command == "report":
+    elif args.command == "report":
         _run_report(args, parser)
-        return
-    if args.command == "search":
+    elif args.command == "search":
         _run_search(args, parser)
-        return
-    parser.print_help()
+    elif args.command == "reconcile":
+        _run_reconcile(args, parser)
+    elif args.command == "export":
+        _run_export(args, parser)
+    else:
+        parser.print_help()
 
 
 def _health() -> None:
@@ -712,6 +740,66 @@ def _print_import_errors(errors: list[importer.RowError]) -> None:
     print("Errors:")
     for error in errors:
         print(f"row {error['row']}: {error['error']}")
+
+
+def _run_reconcile(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    connection = init_db()
+    try:
+        try:
+            statement_cents = accounts.money_to_cents(args.statement)
+            result = accounts.reconcile(connection, args.account, statement_cents, args.as_of)
+        except accounts.AccountError as exc:
+            _cli_error(parser, str(exc))
+        _print_reconciliation(args.account, args.as_of, result)
+    finally:
+        connection.close()
+
+
+def _print_reconciliation(account_id: int, as_of: str, result: dict[str, Any]) -> None:
+    print(f"Reconciliation for account {account_id} as of {as_of}")
+    print(f"Statement balance: {_format_cents(int(result['expected']))}")
+    print(f"Ledger balance: {_format_cents(int(result['actual']))}")
+    print(f"Difference: {_format_cents(int(result['difference']))}")
+    unreconciled = list(result["unreconciled"])
+    if not unreconciled:
+        print("Unreconciled: none")
+        return
+    print(f"Unreconciled: {len(unreconciled)}")
+    rows = [
+        [
+            str(row["id"]),
+            str(row["date"]),
+            str(row["description"]),
+            str(row["amount"]),
+        ]
+        for row in unreconciled
+    ]
+    headers = ["ID", "DATE", "DESCRIPTION", "AMOUNT"]
+    widths = [
+        max(len(headers[index]), *(len(row[index]) for row in rows))
+        for index in range(len(headers))
+    ]
+    print(_format_row(headers, widths))
+    print(_format_row(["-" * width for width in widths], widths))
+    for row in rows:
+        print(_format_row(row, widths))
+
+
+def _run_export(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    connection = init_db()
+    try:
+        content = exporter.to_json(connection) if args.format == "json" else exporter.to_csv(connection)
+    finally:
+        connection.close()
+
+    if args.output is not None:
+        try:
+            Path(args.output).write_text(content, encoding="utf-8", newline="")
+        except OSError as exc:
+            _cli_error(parser, f"could not write export: {exc}")
+        print(f"Exported {args.format.upper()} to {args.output}")
+        return
+    print(content, end="" if content.endswith("\n") else "\n")
 
 
 def _format_cents(cents: int) -> str:

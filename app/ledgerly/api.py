@@ -32,6 +32,16 @@ class APIResponse:
     payload: Any
 
 
+@dataclass(frozen=True)
+class DownloadResponse:
+    """A non-JSON success response, such as a generated file download."""
+
+    status: int
+    body: bytes
+    content_type: str
+    headers: dict[str, str]
+
+
 class Router:
     def __init__(self) -> None:
         self.routes: list[tuple[str, re.Pattern[str], Handler]] = []
@@ -44,12 +54,16 @@ class Router:
         ) + "/?$"
         self.routes.append((method.upper(), re.compile(regex), handler))
 
-    def dispatch(self, method: str, path: str, body: Any = None) -> tuple[int, dict[str, Any]]:
+    def dispatch(
+        self, method: str, path: str, body: Any = None
+    ) -> tuple[int, dict[str, Any] | DownloadResponse]:
         for verb, regex, handler in self.routes:
             match = regex.match(path)
             if verb == method.upper() and match:
                 try:
                     result = handler(match.groupdict(), body)
+                    if isinstance(result, DownloadResponse):
+                        return (result.status, result)
                     if isinstance(result, APIResponse):
                         payload = result.payload
                         return (

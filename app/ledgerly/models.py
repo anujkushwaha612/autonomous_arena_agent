@@ -41,6 +41,7 @@ class Transaction:
     is_transfer: bool
     external_id: Optional[str]
     created_at: str
+    reconciled_at: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -53,6 +54,7 @@ class Transaction:
             "is_transfer": self.is_transfer,
             "external_id": self.external_id,
             "created_at": self.created_at,
+            "reconciled_at": self.reconciled_at,
         }
 
 

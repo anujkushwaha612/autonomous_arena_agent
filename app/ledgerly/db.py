@@ -90,6 +90,11 @@ def migrate(conn: sqlite3.Connection) -> None:
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_budgets_period ON budgets(period)")
             conn.execute("UPDATE schema_version SET version = 4")
+            version = 4
+
+        if version < 5:
+            conn.execute("ALTER TABLE transactions ADD COLUMN reconciled_at TEXT")
+            conn.execute("UPDATE schema_version SET version = 5")
 
 
 def init_db(path: Optional[str] = None) -> sqlite3.Connection:

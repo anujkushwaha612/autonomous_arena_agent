@@ -8,10 +8,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, NoReturn
 from urllib.parse import parse_qs
 
-from ledgerly import accounts, budgets, categories, importer, reports, transactions
+from ledgerly import accounts, budgets, categories, exporter, importer, reports, transactions
 from ledgerly.api import (
     APIError,
     APIResponse,
+    DownloadResponse,
     MAX_BODY_BYTES,
     PayloadTooLargeError,
     Router,
@@ -113,8 +114,46 @@ def _raise_rule_error(exc: categories.RuleError | categories.CategoryError) -> N
     raise APIError(400, "invalid_rule", str(exc)) from exc
 
 
-def _health(_params: dict[str, str], _body: Any) -> dict[str, str]:
-    return {"status": "ok", "version": "1", "db": "ready"}
+def _health(_params: dict[str, str], _body: Any) -> dict[str, Any]:
+    connection = _connection()
+    return {
+        "status": "ok",
+        "version": "1",
+        "db": "ready",
+        "counts": {
+            "accounts": int(connection.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]),
+            "transactions": int(connection.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]),
+            "categories": int(connection.execute("SELECT COUNT(*) FROM categories").fetchone()[0]),
+        },
+    }
+
+
+def _export(_params: dict[str, str], _body: Any) -> DownloadResponse:
+    """Return a complete ledger export as an attachment in JSON or CSV form."""
+    full_path = _current_path[0] if _current_path else "/"
+    _, query = _parse_path(full_path)
+    unknown = sorted(set(query) - {"format"})
+    if unknown:
+        raise APIError(
+            400,
+            "invalid_request",
+            f"unknown query parameter(s): {', '.join(unknown)}",
+        )
+    export_format = _query_single(query, "format").lower() if "format" in query else "json"
+    if export_format == "json":
+        body = exporter.to_json(_connection()).encode("utf-8")
+        content_type = "application/json; charset=utf-8"
+    elif export_format == "csv":
+        body = exporter.to_csv(_connection()).encode("utf-8")
+        content_type = "text/csv; charset=utf-8"
+    else:
+        raise APIError(400, "invalid_request", "format must be json or csv")
+    return DownloadResponse(
+        status=200,
+        body=body,
+        content_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="ledgerly-export.{export_format}"'},
+    )
 
 
 def _list_accounts(_params: dict[str, str], _body: Any) -> list[dict[str, Any]]:
@@ -604,6 +643,7 @@ _current_path: list[str] = []
 
 
 router.add_route("GET", "/api/v1/health", _health)
+router.add_route("GET", "/api/v1/export", _export)
 router.add_route("GET", "/api/v1/accounts", _list_accounts)
 router.add_route("POST", "/api/v1/accounts", _create_account)
 router.add_route("GET", "/api/v1/accounts/:id", _get_account)
@@ -668,6 +708,9 @@ class Handler(BaseHTTPRequestHandler):
             status, payload = router.dispatch(self.command, route, body)
         finally:
             _current_path.clear()
+        if isinstance(payload, DownloadResponse):
+            self._send_download(payload)
+            return
         if status == 204:
             self._send_empty(status)
             return
@@ -701,6 +744,15 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _send_download(self, response: DownloadResponse) -> None:
+        self.send_response(response.status)
+        self.send_header("Content-Type", response.content_type)
+        self.send_header("Content-Length", str(len(response.body)))
+        for name, value in response.headers.items():
+            self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(response.body)
 
     def _send_empty(self, status: int) -> None:
         self.send_response(status)

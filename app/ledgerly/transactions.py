@@ -142,7 +142,7 @@ def get(conn: sqlite3.Connection, transaction_id: int) -> Transaction | None:
     clean_id = _validate_transaction_id(transaction_id)
     row = conn.execute(
         """SELECT id, account_id, date, description, amount_cents,
-                  category_id, is_transfer, external_id, created_at
+                  category_id, is_transfer, external_id, created_at, reconciled_at
            FROM transactions WHERE id = ?""",
         (clean_id,),
     ).fetchone()
@@ -194,7 +194,7 @@ def list_for_account(
 
     rows = conn.execute(
         f"""SELECT id, account_id, date, description, amount_cents,
-                   category_id, is_transfer, external_id, created_at
+                   category_id, is_transfer, external_id, created_at, reconciled_at
             FROM transactions
             WHERE {where_clause}
             ORDER BY date ASC, id ASC
@@ -352,6 +352,7 @@ def _from_row(row: sqlite3.Row) -> Transaction:
         is_transfer=bool(int(row["is_transfer"])),
         external_id=str(row["external_id"]) if row["external_id"] is not None else None,
         created_at=str(row["created_at"]),
+        reconciled_at=str(row["reconciled_at"]) if row["reconciled_at"] is not None else None,
     )
 
 

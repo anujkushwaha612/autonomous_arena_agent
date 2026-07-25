@@ -369,7 +369,7 @@ returns zeroes (no exception, no `None` where a number is promised), and
 ---
 
 ### T8: Reconciliation, export & polish
-**STATUS: TODO**
+**STATUS: DONE**
 
 Final task.
 
@@ -405,3 +405,4 @@ Re-run the T1/T3/T7 committed tests — they must still pass.
 - T5 completed: category CRUD with one-level parent validation and idempotent default seeds; migration v3 rules storage; priority-ordered, case-insensitive substring/validated-regex rule matching and application; category/rule API endpoints; and category/rule CLI commands.
 - T6 completed: migration v4 `budgets` table with a (category_id, period) upsert key; budget service with `set_budget`/`get_status` honouring `YYYY-MM` over the recurring `monthly` default, expense-only spend that excludes transfers and lets refunds reduce it, and `None` (not zero) for unbudgeted categories; GET/PUT `/api/v1/budgets` and GET `/api/v1/budgets/status`; CLI `budget set|status|list` with a text usage bar.
 - T7 completed: SQL-based reporting service with spending by category, gap-free monthly totals via recursive CTE, cashflow summaries, and transaction search; API endpoints for spending/monthly/cashflow/search; CLI commands for reports and search; committed `pytests/test_reports.py` covering zero-data stability and monthly gap-filling.
+- T8 completed: migration v5 adds transaction `reconciled_at`; account reconciliation compares the statement/ledger balance through an as-of date, settles matching pending transactions, and reports mismatches; full-ledger JSON/CSV export with attachment headers and CSV quoting; health count fields; CLI reconcile/export and top-level JSON output; install-free README.

@@ -4,7 +4,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
 from ledgerly.models import Account
 
@@ -187,6 +187,76 @@ def archive(conn: sqlite3.Connection, account_id: int) -> Account:
     if account is None:  # Defensive against unexpected concurrent deletion.
         raise AccountNotFoundError(f"account {clean_id} was not found")
     return account
+
+
+def reconcile(
+    conn: sqlite3.Connection, account_id: int, statement_cents: int, as_of: str
+) -> dict[str, Any]:
+    """Compare an account's ledger balance with a statement and settle it if it matches.
+
+    ``statement_cents`` is an integer minor-unit balance.  The ledger's actual
+    balance is calculated from the account opening balance and all transactions
+    dated on or before ``as_of``.  A zero difference marks every pending
+    transaction in that window with a UTC ``reconciled_at`` timestamp; a
+    mismatch leaves the ledger untouched and returns those pending rows so a
+    user can investigate them.
+    """
+    clean_id = _validate_account_id(account_id)
+    account = get(conn, clean_id)
+    if account is None:
+        raise AccountNotFoundError(f"account {clean_id} was not found")
+    if isinstance(statement_cents, bool) or not isinstance(statement_cents, int):
+        raise AccountError("statement balance must be an integer number of cents")
+    if statement_cents < SQLITE_INTEGER_MIN or statement_cents > SQLITE_INTEGER_MAX:
+        raise AccountError("statement balance is outside the supported range")
+
+    # Import lazily: transactions imports accounts for its account-existence
+    # checks, while this service only needs its shared date validation and row
+    # conversion while reconciling.
+    from ledgerly.transactions import InvalidDateError, _from_row, validate_date
+
+    try:
+        clean_as_of = validate_date(as_of)
+    except InvalidDateError as exc:
+        raise AccountError(str(exc)) from exc
+
+    actual_row = conn.execute(
+        """SELECT a.opening_balance_cents + COALESCE(SUM(t.amount_cents), 0) AS actual
+           FROM accounts a
+           LEFT JOIN transactions t ON t.account_id = a.id AND t.date <= ?
+           WHERE a.id = ?
+           GROUP BY a.id""",
+        (clean_as_of, clean_id),
+    ).fetchone()
+    actual = int(actual_row["actual"]) if actual_row is not None else account.opening_balance_cents
+    difference = actual - statement_cents
+    rows = conn.execute(
+        """SELECT id, account_id, date, description, amount_cents,
+                  category_id, is_transfer, external_id, created_at, reconciled_at
+           FROM transactions
+           WHERE account_id = ? AND date <= ? AND reconciled_at IS NULL
+           ORDER BY date ASC, id ASC""",
+        (clean_id, clean_as_of),
+    ).fetchall()
+
+    if difference == 0:
+        with conn:
+            conn.execute(
+                """UPDATE transactions
+                   SET reconciled_at = ?
+                   WHERE account_id = ? AND date <= ? AND reconciled_at IS NULL""",
+                (_utc_now(), clean_id, clean_as_of),
+            )
+        unreconciled: list[dict[str, Any]] = []
+    else:
+        unreconciled = [transaction.to_dict() for transaction in (_from_row(row) for row in rows)]
+
+    return {
+        "expected": statement_cents,
+        "actual": actual,
+        "difference": difference,
+        "unreconciled": unreconciled,
+    }
 
 
 def _validate_account_id(account_id: int) -> int:
