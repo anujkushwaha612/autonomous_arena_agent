@@ -158,7 +158,7 @@ an unknown name returns the default instead of throwing.
 ---
 
 ### T3: Create links & redirect
-**STATUS: TODO**
+**STATUS: DONE**
 
 The core product.
 

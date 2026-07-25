@@ -237,6 +237,7 @@ async function main() {
 
       // receipt
       console.log(`  🎫 Receipt: ${result.receipt}`);
+      const todoBefore = countTodo();
       try {
         const r = applyDrop({
           repoRoot: CONFIG.repoRoot,
@@ -260,6 +261,28 @@ async function main() {
           console.log(`  ✅ Applied ${r.bytes}B via ${r.mode}, committed & pushed.`);
           completedThisSession++;
           logEvent({ event: 'task_done', round, receipt: result.receipt, bytes: r.bytes, mode: r.mode });
+
+          // Agents sometimes do the work and even log it, but forget to flip
+          // their task's STATUS to DONE. The task then gets redone next round,
+          // wasting a full cycle and risking conflicting duplicate work.
+          // Detect it and repair it in place.
+          const todoAfter = countTodo();
+          if (todoAfter >= todoBefore) {
+            const fixed = markFirstTodoDone();
+            if (fixed) {
+              console.log(`  🩹 Agent forgot to flip STATUS — marked "${fixed}" DONE.`);
+              logEvent({ event: 'status_repaired', round, task: fixed });
+              try {
+                sh('git add agents.md');
+                sh(`git commit -q -m "chore: mark ${fixed} DONE (agent omitted status flip)"`);
+                sh('git push -q');
+              } catch (e) {
+                console.log(`  ⚠️  could not push status repair: ${e.message.split('\n')[0]}`);
+              }
+            } else {
+              console.log('  ⚠️  Task count did not drop and no TODO found to repair.');
+            }
+          }
         }
 
         // Session budget reached — stop cleanly. Progress is already committed
@@ -426,6 +449,30 @@ function waitForRemoteSync(timeoutMs = 30000) {
   console.log('  ⚠️  remote still behind after 30s — continuing anyway.');
 }
 
+
+/**
+ * Flip the FIRST `**STATUS: TODO**` to DONE and return that task's heading.
+ * Used to repair a round where the agent did the work but forgot the flip.
+ */
+function markFirstTodoDone() {
+  const src = fs.readFileSync(CONFIG.brainFile, 'utf8');
+  const lines = src.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\*\*STATUS:\s*TODO\*\*\s*$/i.test(lines[i])) {
+      lines[i] = '**STATUS: DONE**';
+      // Walk back to the nearest "### ..." heading for a human-readable name.
+      let title = 'task';
+      for (let j = i - 1; j >= 0 && j > i - 8; j--) {
+        const m = lines[j].match(/^###\s+(.+?)\s*$/);
+        if (m) { title = m[1]; break; }
+      }
+      fs.writeFileSync(CONFIG.brainFile, lines.join('\n'));
+      return title;
+    }
+  }
+  return null;
+}
+
 // ── setup checks ─────────────────────────────────────────────────────────────
 function preflight() {
   if (!fs.existsSync(path.join(CONFIG.repoRoot, '.git'))) {
@@ -463,6 +510,7 @@ function buildPrompt({ round, nonce, ingestUrl }) {
     .split('<<<REPO_URL>>>').join(CONFIG.repoUrl)
     .split('<<<INGEST_URL>>>').join(ingestUrl)
     .split('<<<INGEST_TOKEN>>>').join(CONFIG.ingestToken)
+    .split('<<<WORK_DIR>>>').join(CONFIG.workDir)
     .split('<<<ROUND>>>').join(String(round))
     .split('<<<NONCE>>>').join(nonce);
 }

@@ -17,6 +17,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { checkContracts } = require('./contract');
+const { checkFile } = require('./languages');
 
 /** Files touched by the staged/unstaged change, relative to repoRoot. */
 function changedFiles(repoRoot) {
@@ -41,19 +42,19 @@ function changedFiles(repoRoot) {
     .map((f) => f.replace(/^"|"$/g, ''));
 }
 
-/** Node syntax check — catches unclosed braces, bad imports, typos. */
-function checkJavaScript(repoRoot, files) {
+/**
+ * Syntax-check every changed file using the right toolchain for its language.
+ * Unknown file types and missing toolchains are skipped, never failed — the
+ * runner shouldn't reject Go code just because Go isn't installed here.
+ */
+function checkSyntax(repoRoot, files) {
   const errors = [];
   for (const f of files) {
-    if (!/\.(js|mjs|cjs)$/.test(f)) continue;
     const abs = path.join(repoRoot, f);
     if (!fs.existsSync(abs)) continue;
-    try {
-      execSync(`node --check "${abs}"`, { stdio: ['ignore', 'pipe', 'pipe'] });
-    } catch (e) {
-      const msg = ((e.stderr && e.stderr.toString()) || e.message).split('\n').slice(0, 3).join(' ');
-      errors.push(`${f}: ${msg.trim()}`);
-    }
+    if (fs.statSync(abs).isDirectory()) continue;
+    const err = checkFile(abs, f);
+    if (err) errors.push(err);
   }
   return errors;
 }
@@ -163,7 +164,7 @@ function runGate(repoRoot, { userCmd = null, smoke = false, timeoutMs = 300000, 
   const errors = [
     ...checkForbidden(repoRoot, files),
     ...checkJson(repoRoot, files),
-    ...checkJavaScript(repoRoot, files),
+    ...checkSyntax(repoRoot, files),
   ];
 
   // Whole-program check: does every local module actually export what its

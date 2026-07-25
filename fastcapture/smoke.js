@@ -19,7 +19,11 @@ const net = require('net');
 const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '..');
-const APP_DIR = process.env.APP_DIR || path.join(REPO_ROOT, 'app');
+const WORK_DIR = process.env.WORK_DIR || 'app';
+const APP_DIR = process.env.APP_DIR || path.join(REPO_ROOT, WORK_DIR);
+// Command that boots a long-running service. Empty string = nothing to boot,
+// so tests run directly (libraries, data pipelines, ML notebooks, docs).
+const SMOKE_CMD = process.env.SMOKE_CMD ?? 'npm start';
 const TEST_DIR = process.env.TEST_DIR || path.join(APP_DIR, 'tests');
 const PORT = Number(process.env.SMOKE_PORT || 3000);
 const BOOT_TIMEOUT_MS = Number(process.env.SMOKE_BOOT_MS || 30000);
@@ -118,12 +122,13 @@ async function waitForPort(port, timeoutMs, child, logTail) {
 }
 
 function startServer() {
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const child = spawn(npm, ['start'], {
+  // Run through a shell so SMOKE_CMD can be anything:
+  //   "npm start" | "python -m uvicorn main:app" | "go run ." | "cargo run"
+  const child = spawn(SMOKE_CMD, {
     cwd: APP_DIR,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, PORT: String(PORT), NODE_ENV: 'test' },
-    shell: process.platform === 'win32',
+    shell: true,
   });
   let out = '';
   child.stdout.on('data', (c) => (out += c));
@@ -148,15 +153,11 @@ function stopServer(child) {
 
 async function main() {
   if (!fs.existsSync(APP_DIR)) {
-    console.log('  ⏭  no app/ directory yet — nothing to smoke test.');
-    return 0;
-  }
-  if (!fs.existsSync(path.join(APP_DIR, 'package.json'))) {
-    console.log('  ⏭  app/package.json missing — skipping smoke tests.');
+    console.log(`  ⏭  no ${WORK_DIR}/ directory yet — nothing to smoke test.`);
     return 0;
   }
   if (!fs.existsSync(TEST_DIR)) {
-    console.log('  ⚠️  no tests/ directory — add app/tests/*.test.js to verify features at runtime.');
+    console.log(`  ⚠️  no tests/ directory — add ${WORK_DIR}/tests/*.test.js to verify at runtime.`);
     return 0;
   }
 
@@ -166,15 +167,22 @@ async function main() {
     return 0;
   }
 
-  console.log(`\n  🔥 smoke: booting app and running ${files.length} test file(s)…`);
+  const needsServer = Boolean(SMOKE_CMD && SMOKE_CMD.trim());
+  console.log(
+    `\n  🔥 smoke: ${needsServer ? 'booting app and ' : ''}running ${files.length} test file(s)…`
+  );
 
-  const { child, logTail } = startServer();
+  let child = null;
+  let logTail = () => '';
   let failed = 0;
   let passed = 0;
 
   try {
-    const ms = await waitForPort(PORT, BOOT_TIMEOUT_MS, child, logTail);
-    console.log(`  ✅ server up on :${PORT} (${ms}ms)`);
+    if (needsServer) {
+      ({ child, logTail } = startServer());
+      const ms = await waitForPort(PORT, BOOT_TIMEOUT_MS, child, logTail);
+      console.log(`  ✅ server up on :${PORT} (${ms}ms)`);
+    }
 
     for (const file of files) {
       const full = path.join(TEST_DIR, file);

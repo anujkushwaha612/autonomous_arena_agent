@@ -90,6 +90,20 @@ module.exports = {
   // Validate the agent's work before committing. Syntax + JSON + contract
   // checks always run; VERIFY_CMD adds your own tests/lint/build.
   gateEnabled: process.env.GATE !== 'off',
+
+  // ── project shape (task-type agnostic) ────────────────────────────────────
+  // Where the agent's work lives. Defaults to `app/` but can be anything:
+  //   WORK_DIR=notebooks   (an ML project)
+  //   WORK_DIR=docs        (a writing project)
+  //   WORK_DIR=.           (work at the repo root)
+  workDir: process.env.WORK_DIR || 'app',
+  // Command that boots a long-running service for smoke tests. Set to '' for
+  // projects with nothing to boot (data, docs, libraries, notebooks).
+  //   SMOKE_CMD="python -m uvicorn main:app"   (FastAPI)
+  //   SMOKE_CMD=""                              (no server; tests run directly)
+  // NOTE: `??`, not `||` — SMOKE_CMD="" is a meaningful value meaning
+  // "there is no server to boot", and `||` would silently ignore it.
+  smokeCmd: process.env.SMOKE_CMD ?? 'npm start',
   // Runtime smoke tests: boot the app and exercise it.
   smokeEnabled: process.env.SMOKE !== 'off',
   verifyCmd: process.env.VERIFY_CMD || null,

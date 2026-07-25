@@ -16,7 +16,13 @@ If no task has `STATUS: TODO`, output exactly `%%%ALL_DONE%%%` and stop.
 
 STEP 4 — Do the work.
 
-Complete it fully. Create/edit files only under `app/` (plus `agents.md` and `NEXT.md`). Write clean, runnable code. You may `npm install` inside `app/` to verify; `node_modules` is gitignored and must never be committed.
+Complete it fully. Create/edit files only under `<<<WORK_DIR>>>/` (plus `agents.md` and `NEXT.md`).
+
+`agents.md` defines the project — its language, tooling, conventions and
+constraints. Follow it exactly; do not assume JavaScript or any particular
+stack. Install dependencies with whatever the project uses (npm, pip, cargo,
+go mod…), but never commit installed packages (`node_modules/`, `.venv/`,
+`target/`, `__pycache__/`).
 
 STEP 5 — Update the brain.
 
