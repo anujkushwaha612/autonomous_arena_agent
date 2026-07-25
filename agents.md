@@ -303,7 +303,7 @@ source.
 ---
 
 ### T2: Rooms, join/create & lobby state
-**STATUS: TODO**
+**STATUS: DONE**
 
 **Requirements**
 
@@ -865,3 +865,4 @@ round.
 
 <!-- Agents append one line here per completed task -->
 - T1 completed — added the strict TypeScript/esbuild server and client skeleton, same-port static/WebSocket hosting, health endpoint, and smoke coverage.
+Done T2 — rooms, protocol, constants, types, lobby smoke test.
