@@ -188,7 +188,7 @@ then confirm it 404s.
 ---
 
 ### T4: URL validation & custom aliases
-**STATUS: TODO**
+**STATUS: DONE**
 
 Stop garbage getting in.
 
@@ -426,3 +426,4 @@ number greater than zero.
 - 2026-07-25 T1 DONE — HTTP server & router foundation: `app/package.json` (linkly, stdlib-only), `app/router.js` (addRoute/route/sendJson, params + query, 404/500 JSON), `app/server.js` (createServer, 1 MB body cap → 413, JSON parsing → 400, `/api/health`, PORT||3000), `app/tests/health.test.js`. Smoke suite: 1 passed, 0 failed.
 - 2026-07-25 T2 DONE — JSON storage layer: `app/store.js` (`init`/`read`/`write` + `clearCache`/`dataDir`/`filePath`/`names`, atomic `.tmp`→`renameSync`, mtime-aware in-memory cache, never throws on missing/corrupt files, defaults links/clicks/keys → `{}`), `app/data/.gitkeep`, `store.init()` wired into `server.js`, `app/data/*.json` gitignored, `app/tests/store.test.js`. Smoke suite: 2 passed, 0 failed.
 - 2026-07-25 T3 DONE — Create links & redirect: `app/links.js` (`createLink`/`getLink`/`listLinks`/`deleteLink` + `generateCode`/`RESERVED_CODES`/`isReserved`/`isReservedCode`/`CODE_LENGTH`; 7-char `[A-Za-z0-9]` codes via `crypto.randomBytes` with collision+reserved retry; links persisted as `{ [code]: {code,url,createdAt,clicks} }` via store). Endpoints in `server.js`: `POST /api/links`→201 `{code,url,shortUrl,createdAt}` (Host-derived shortUrl), `GET /api/links`→`{links,total}`, `GET /api/links/:code`→200/404, `DELETE /api/links/:code`→204/404, `GET /:code`→302 Location (reserved codes `api`/`health`/`metrics` never resolve→404). `app/tests/links.test.js`. Smoke suite: 3 passed, 0 failed.
+- 2026-07-25 T4 DONE — URL validation & custom aliases: added `app/validate.js` (`isValidUrl` using `new URL()` with http/https-only schemes and usable hostnames, `normalizeUrl` trimming/defaulting to https/lowercasing hosts/stripping bare-host slash, `isValidAlias` enforcing 3–32 `[A-Za-z0-9_-]` and reserved-word rejection via links). Wired `POST /api/links` to reject invalid URLs/aliases before creation, store normalized URLs, preserve duplicate-alias 409s, and allow valid aliases as codes. Added `app/tests/validate.test.js`. Smoke suite: 4 passed, 0 failed.

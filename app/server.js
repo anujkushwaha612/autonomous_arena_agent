@@ -15,6 +15,7 @@ const http = require('http');
 const { addRoute, route, sendJson } = require('./router');
 const store = require('./store');
 const links = require('./links');
+const validate = require('./validate');
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
 const METHODS_WITH_BODY = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -50,9 +51,17 @@ function registerRoutes() {
   // Create a link. Returns 201 with the link + an absolute shortUrl.
   addRoute('POST', '/api/links', (req, res) => {
     const body = req.body || {};
+    if (!validate.isValidUrl(body.url)) {
+      return sendJson(res, 400, { error: 'Invalid URL' });
+    }
+    if (body.alias !== undefined && body.alias !== null && !validate.isValidAlias(body.alias)) {
+      return sendJson(res, 400, { error: 'Invalid alias' });
+    }
+
+    const normalizedUrl = validate.normalizeUrl(body.url);
     let link;
     try {
-      link = links.createLink({ url: body.url, alias: body.alias });
+      link = links.createLink({ url: normalizedUrl, alias: body.alias });
     } catch (err) {
       switch (err.code) {
         case 'INVALID_URL':

@@ -1,34 +1,12 @@
 # NEXT.md — handoff notes for the next agent
 
-T1, T2, T3 are DONE, verified via `node fastcapture/smoke.js` (3/3 passing).
+T1–T4 are DONE, verified via `node fastcapture/smoke.js` (4/4 passing).
 
-Your task is **T4: URL validation & custom aliases** (`app/validate.js`). Notes
-that will save you time:
+Your task is **T5: Click analytics** (`app/analytics.js`). Notes:
 
-- **Links layer is ready.** `require('./links')` gives you `createLink`,
-  `getLink`, `listLinks`, `deleteLink` plus `generateCode`, `RESERVED_CODES`,
-  `isReserved`, `isReservedCode`, `CODE_LENGTH`.
-- `createLink({ url, alias })` already throws tagged errors you can map in the
-  route: `INVALID_URL` (missing/empty url), `INVALID_ALIAS` (reserved code),
-  `ALIAS_TAKEN` (code exists). The POST handler in `server.js` already maps
-  these to 400/400/409. **T4 should add real validation BEFORE calling
-  createLink** so malformed-but-non-empty URLs (e.g. `javascript:alert(1)`,
-  `not-a-url`) are rejected — currently any non-empty string passes. Map invalid
-  URL → `400 { "error": "Invalid URL" }`, invalid alias → `400 { "error":
-  "Invalid alias" }`.
-- Reserved words are `api`, `health`, `metrics` (see `links.RESERVED_CODES`).
-  `isValidAlias` should reuse `links.isReserved` rather than hard-coding the
-  list, so they stay in sync.
-- **Store the normalized URL.** Right now `createLink` stores `String(url)`
-  verbatim. Either normalize in the route before calling `createLink`, or have
-  `createLink` call `normalizeUrl` once validate.js exists (prefer normalizing
-  in the route to keep `links.js` free of validate deps — keeps the module
-  contract boundaries clean).
-- Route wiring lives in `registerRoutes()` in `server.js`; the POST /api/links
-  handler is where validation plugs in. `req.body`, `req.params`, `req.query`
-  and `sendJson` are available as before.
-- Don't break T3's test: the created link must still echo `url`, include `code`,
-  `shortUrl`, `createdAt`; the alias path (a valid unique alias becomes the
-  code) is exercised by the new validate test. Don't remove the existing 409 for
-  duplicate aliases.
-- Run `node fastcapture/smoke.js` before handing off — all tests must pass.
+- Existing modules are stdlib-only. `store.read/write` persists JSON under `app/data/`; defaults already include `clicks: {}`.
+- `links.js` exports `getLink` and stores each link as `{ code, url, createdAt, clicks }`. To increment clicks, read `links`, update the matching record, then `store.write('links', links)`.
+- Redirect logic is in `registerRoutes()` in `app/server.js`, route `GET /:code`. Add analytics recording there before `sendRedirect`, but wrap it so redirect still succeeds if recording fails.
+- Add endpoints before the generic `/api/links/:code` route if their patterns could collide (e.g. `/api/links/:code/stats` has three segments so it is safe, but keep route ordering in mind generally).
+- T4 added `app/validate.js` and POST validation/normalization; don't regress `validate.test.js` expectations (`not-a-url` and `javascript:` → 400; valid custom alias → code; duplicate alias → 409).
+- Run `node fastcapture/smoke.js` before handing off.
