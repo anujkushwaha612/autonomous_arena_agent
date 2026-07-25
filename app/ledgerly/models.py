@@ -65,3 +65,21 @@ class Category:
 
     def to_dict(self) -> dict[str, Any]:
         return {"id": self.id, "name": self.name, "parent_id": self.parent_id, "kind": self.kind}
+
+
+@dataclass(frozen=True)
+class Rule:
+    id: int
+    pattern: str
+    category_id: int
+    priority: int
+    is_regex: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "pattern": self.pattern,
+            "category_id": self.category_id,
+            "priority": self.priority,
+            "is_regex": self.is_regex,
+        }

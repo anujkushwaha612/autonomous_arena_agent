@@ -6,9 +6,9 @@ import os
 from pathlib import Path
 from typing import NoReturn, Sequence
 
-from ledgerly import accounts, importer, transactions
+from ledgerly import accounts, categories, importer, transactions
 from ledgerly.db import init_db
-from ledgerly.models import Account, Transaction
+from ledgerly.models import Account, Category, Rule, Transaction
 
 _BALANCE_FIELD = "balance_cents"
 
@@ -87,6 +87,29 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="parse and report without inserting transactions",
     )
+
+    category_parser = subcommands.add_parser("category", help="manage categories")
+    category_commands = category_parser.add_subparsers(dest="category_command", required=True)
+    category_commands.add_parser("list", help="list categories")
+    category_add = category_commands.add_parser("add", help="create a category")
+    category_add.add_argument("name", help="unique category name")
+    category_add.add_argument("--kind", required=True, choices=sorted(categories.CATEGORY_KINDS))
+    category_add.add_argument("--parent", type=int, default=None, help="parent category id")
+
+    rule_parser = subcommands.add_parser("rule", help="manage categorisation rules")
+    rule_commands = rule_parser.add_subparsers(dest="rule_command", required=True)
+    rule_add = rule_commands.add_parser("add", help="create a categorisation rule")
+    rule_add.add_argument("pattern", help="substring or regular-expression pattern")
+    rule_add.add_argument("category", type=int, help="destination category id")
+    rule_add.add_argument("--priority", type=int, required=True, help="higher values win")
+    rule_add.add_argument("--regex", action="store_true", help="interpret pattern as a regular expression")
+    rule_commands.add_parser("list", help="list rules by priority")
+    rule_apply = rule_commands.add_parser("apply", help="apply rules to transactions")
+    rule_apply.add_argument(
+        "--all",
+        action="store_true",
+        help="also re-evaluate transactions that already have a category",
+    )
     return parser
 
 
@@ -107,6 +130,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         return
     if args.command == "import":
         _run_import(args, parser)
+        return
+    if args.command == "category":
+        _run_category(args, parser)
+        return
+    if args.command == "rule":
+        _run_rule(args, parser)
         return
     parser.print_help()
 
@@ -242,6 +271,55 @@ def _run_import(args: argparse.Namespace, parser: argparse.ArgumentParser) -> No
         connection.close()
 
 
+def _run_category(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    connection = init_db()
+    try:
+        if args.category_command == "list":
+            _print_category_table(categories.list_all(connection))
+        elif args.category_command == "add":
+            try:
+                category = categories.create(
+                    connection,
+                    name=args.name,
+                    kind=args.kind,
+                    parent_id=args.parent,
+                )
+            except categories.CategoryError as exc:
+                _cli_error(parser, str(exc))
+            print(f"Created category {category.id}: {category.name}")
+    finally:
+        connection.close()
+
+
+def _run_rule(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    connection = init_db()
+    try:
+        if args.rule_command == "add":
+            try:
+                rule = categories.add_rule(
+                    connection,
+                    args.pattern,
+                    args.category,
+                    args.priority,
+                    args.regex,
+                )
+            except (categories.RuleError, categories.CategoryError) as exc:
+                _cli_error(parser, str(exc))
+            print(f"Created rule {rule.id}: {rule.pattern}")
+        elif args.rule_command == "list":
+            _print_rule_table(categories.list_rules(connection))
+        elif args.rule_command == "apply":
+            try:
+                count = categories.apply_rules(
+                    connection, only_uncategorised=not args.all
+                )
+            except categories.RuleError as exc:
+                _cli_error(parser, str(exc))
+            print(f"Recategorised {count} transaction(s).")
+    finally:
+        connection.close()
+
+
 def _print_account(account: Account) -> None:
     data = account.to_dict()
     for label, key in (
@@ -274,6 +352,55 @@ def _print_account_table(account_list: list[Account]) -> None:
             ]
         )
     headers = ["ID", "NAME", "KIND", "CURRENCY", "OPENING", "ARCHIVED"]
+    widths = [
+        max(len(headers[index]), *(len(row[index]) for row in rows))
+        for index in range(len(headers))
+    ]
+    print(_format_row(headers, widths))
+    print(_format_row(["-" * width for width in widths], widths))
+    for row in rows:
+        print(_format_row(row, widths))
+
+
+def _print_category_table(category_list: list[Category]) -> None:
+    if not category_list:
+        print("No categories.")
+        return
+    rows = [
+        [
+            str(category.id),
+            category.name,
+            str(category.parent_id) if category.parent_id is not None else "-",
+            category.kind,
+        ]
+        for category in category_list
+    ]
+    headers = ["ID", "NAME", "PARENT", "KIND"]
+    widths = [
+        max(len(headers[index]), *(len(row[index]) for row in rows))
+        for index in range(len(headers))
+    ]
+    print(_format_row(headers, widths))
+    print(_format_row(["-" * width for width in widths], widths))
+    for row in rows:
+        print(_format_row(row, widths))
+
+
+def _print_rule_table(rule_list: list[Rule]) -> None:
+    if not rule_list:
+        print("No rules.")
+        return
+    rows = [
+        [
+            str(rule.id),
+            str(rule.priority),
+            str(rule.category_id),
+            "yes" if rule.is_regex else "no",
+            rule.pattern,
+        ]
+        for rule in rule_list
+    ]
+    headers = ["ID", "PRIORITY", "CATEGORY", "REGEX", "PATTERN"]
     widths = [
         max(len(headers[index]), *(len(row[index]) for row in rows))
         for index in range(len(headers))

@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, NoReturn
 from urllib.parse import parse_qs
 
-from ledgerly import accounts, importer, transactions
+from ledgerly import accounts, categories, importer, transactions
 from ledgerly.api import (
     APIError,
     APIResponse,
@@ -95,6 +95,22 @@ def _raise_importer_error(exc: importer.ImporterError) -> NoReturn:
     if isinstance(exc, importer.MappingError):
         raise APIError(400, "invalid_import_mapping", str(exc)) from exc
     raise APIError(400, "invalid_import", str(exc)) from exc
+
+
+def _raise_category_error(exc: categories.CategoryError) -> NoReturn:
+    if isinstance(exc, categories.CategoryNotFoundError):
+        raise APIError(404, "category_not_found", str(exc)) from exc
+    if isinstance(exc, categories.DuplicateCategoryError):
+        raise APIError(409, "duplicate_category", str(exc)) from exc
+    raise APIError(400, "invalid_category", str(exc)) from exc
+
+
+def _raise_rule_error(exc: categories.RuleError | categories.CategoryError) -> NoReturn:
+    if isinstance(exc, categories.CategoryError):
+        _raise_category_error(exc)
+    if isinstance(exc, categories.RuleNotFoundError):
+        raise APIError(404, "rule_not_found", str(exc)) from exc
+    raise APIError(400, "invalid_rule", str(exc)) from exc
 
 
 def _health(_params: dict[str, str], _body: Any) -> dict[str, str]:
@@ -337,6 +353,64 @@ def _import_transactions(params: dict[str, str], body: Any) -> dict[str, Any]:
     }
 
 
+def _list_categories(_params: dict[str, str], _body: Any) -> list[dict[str, Any]]:
+    return [category.to_dict() for category in categories.list_all(_connection())]
+
+
+def _create_category(_params: dict[str, str], body: Any) -> APIResponse:
+    payload = _body_object(body)
+    _reject_unknown_fields(payload, {"name", "kind", "parent_id"})
+    for field in ("name", "kind"):
+        if field not in payload:
+            raise APIError(400, "invalid_request", f"{field} is required")
+    try:
+        category = categories.create(
+            _connection(),
+            name=payload["name"],
+            kind=payload["kind"],
+            parent_id=payload.get("parent_id"),
+        )
+    except categories.CategoryError as exc:
+        _raise_category_error(exc)
+    return APIResponse(201, category.to_dict())
+
+
+def _list_rules(_params: dict[str, str], _body: Any) -> list[dict[str, Any]]:
+    return [rule.to_dict() for rule in categories.list_rules(_connection())]
+
+
+def _create_rule(_params: dict[str, str], body: Any) -> APIResponse:
+    payload = _body_object(body)
+    _reject_unknown_fields(payload, {"pattern", "category_id", "priority", "is_regex"})
+    for field in ("pattern", "category_id", "priority"):
+        if field not in payload:
+            raise APIError(400, "invalid_request", f"{field} is required")
+    try:
+        rule = categories.add_rule(
+            _connection(),
+            payload["pattern"],
+            payload["category_id"],
+            payload["priority"],
+            payload.get("is_regex", False),
+        )
+    except (categories.RuleError, categories.CategoryError) as exc:
+        _raise_rule_error(exc)
+    return APIResponse(201, rule.to_dict())
+
+
+def _apply_rules(_params: dict[str, str], body: Any) -> dict[str, int]:
+    payload = _body_object(body) if body is not None else {}
+    _reject_unknown_fields(payload, {"only_uncategorised"})
+    only_uncategorised = payload.get("only_uncategorised", True)
+    try:
+        recategorised = categories.apply_rules(
+            _connection(), only_uncategorised=only_uncategorised
+        )
+    except categories.RuleError as exc:
+        _raise_rule_error(exc)
+    return {"recategorised": recategorised}
+
+
 def _reject_unknown_fields(payload: dict[str, Any], allowed: set[str]) -> None:
     unknown = sorted(set(payload) - allowed)
     if unknown:
@@ -405,6 +479,11 @@ router.add_route("GET", "/api/v1/accounts/:id/transactions", _list_transactions)
 router.add_route("POST", "/api/v1/accounts/:id/transactions", _create_transaction)
 router.add_route("GET", "/api/v1/accounts/:id/balance", _account_balance)
 router.add_route("POST", "/api/v1/accounts/:id/import", _import_transactions)
+router.add_route("GET", "/api/v1/categories", _list_categories)
+router.add_route("POST", "/api/v1/categories", _create_category)
+router.add_route("GET", "/api/v1/rules", _list_rules)
+router.add_route("POST", "/api/v1/rules", _create_rule)
+router.add_route("POST", "/api/v1/rules/apply", _apply_rules)
 router.add_route("GET", "/api/v1/transactions/:id", _get_transaction)
 router.add_route("PATCH", "/api/v1/transactions/:id", _update_transaction)
 router.add_route("DELETE", "/api/v1/transactions/:id", _delete_transaction)

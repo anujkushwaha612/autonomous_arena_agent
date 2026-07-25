@@ -60,13 +60,33 @@ def migrate(conn: sqlite3.Connection) -> None:
         if version < 2:
             conn.execute("ALTER TABLE accounts ADD COLUMN archived_at TEXT")
             conn.execute("UPDATE schema_version SET version = 2")
+            version = 2
+
+        if version < 3:
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS rules (
+                    id INTEGER PRIMARY KEY,
+                    pattern TEXT NOT NULL,
+                    category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+                    priority INTEGER NOT NULL,
+                    is_regex INTEGER NOT NULL DEFAULT 0
+                )"""
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_rules_priority ON rules(priority DESC, id ASC)"
+            )
+            conn.execute("UPDATE schema_version SET version = 3")
 
 
 def init_db(path: Optional[str] = None) -> sqlite3.Connection:
-    """Open and migrate the configured database."""
+    """Open, migrate, and seed the configured database."""
     database = path if path is not None else os.environ.get("LEDGERLY_DB", "app/data/ledgerly.db")
     if database != ":memory:":
         Path(database).parent.mkdir(parents=True, exist_ok=True)
     conn = get_connection(database)
     migrate(conn)
+    # Import after migrations to avoid a module-level storage dependency cycle.
+    from ledgerly.categories import seed_defaults
+
+    seed_defaults(conn)
     return conn
