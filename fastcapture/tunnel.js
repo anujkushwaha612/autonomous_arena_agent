@@ -112,25 +112,70 @@ async function ensureCloudflared(log = console.log) {
 }
 
 /**
- * Block until `host` resolves on a public resolver.
- * We query 1.1.1.1/8.8.8.8 directly rather than the OS resolver so a cached
- * NXDOMAIN from an earlier attempt can't keep us stuck.
+ * Resolve a hostname via DNS-over-HTTPS (port 443).
+ *
+ * Plain DNS to 1.1.1.1/8.8.8.8 uses UDP/53, which many ISPs and corporate
+ * networks block or hijack — so a direct Resolver() call can hang forever even
+ * though the internet works fine. DoH tunnels the same query over HTTPS and
+ * gets through. It also sidesteps the OS negative cache.
  */
-async function waitForDns(host, log = console.log, timeoutMs = 90000) {
-  const { Resolver } = require('dns').promises;
+function resolveDoH(host, provider = 'cloudflare-dns.com') {
+  return new Promise((resolve) => {
+    const req = https.get(
+      {
+        host: provider,
+        path: `/dns-query?name=${encodeURIComponent(host)}&type=A`,
+        headers: { accept: 'application/dns-json', 'User-Agent': 'agentchain' },
+        timeout: 8000,
+      },
+      (res) => {
+        let body = '';
+        res.on('data', (c) => (body += c));
+        res.on('end', () => {
+          try {
+            const j = JSON.parse(body);
+            const a = (j.Answer || []).filter((x) => x.type === 1).map((x) => x.data);
+            resolve(a[0] || null);
+          } catch {
+            resolve(null);
+          }
+        });
+      }
+    );
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
+
+/** Best-effort resolve: DoH first, then the OS resolver. */
+async function resolveAny(host) {
+  for (const p of ['cloudflare-dns.com', 'dns.google']) {
+    const ip = await resolveDoH(host, p);
+    if (ip) return ip;
+  }
+  try {
+    const a = await require('dns').promises.lookup(host);
+    if (a && a.address) return a.address;
+  } catch {}
+  return null;
+}
+
+/**
+ * Wait for the tunnel hostname to become resolvable.
+ *
+ * IMPORTANT: this is best-effort and NEVER throws. Our machine failing to
+ * resolve the name proves nothing about the agent's sandbox, which uses its own
+ * DNS. Blocking the whole run on a local DNS quirk was a bug; now we simply
+ * warn and continue, and the worker's self-test decides whether things work.
+ */
+async function waitForDns(host, log = console.log, timeoutMs = 45000) {
   const started = Date.now();
   let announced = false;
   while (Date.now() - started < timeoutMs) {
-    for (const servers of [['1.1.1.1', '1.0.0.1'], ['8.8.8.8', '8.8.4.4']]) {
-      try {
-        const r = new Resolver();
-        r.setServers(servers);
-        const a = await r.resolve4(host);
-        if (a && a.length) {
-          log(`  ✅ DNS live after ${Math.round((Date.now() - started) / 1000)}s`);
-          return a[0];
-        }
-      } catch {}
+    const ip = await resolveAny(host);
+    if (ip) {
+      log(`  ✅ DNS live after ${Math.round((Date.now() - started) / 1000)}s (${ip})`);
+      return ip;
     }
     if (!announced && Date.now() - started > 4000) {
       announced = true;
@@ -138,7 +183,10 @@ async function waitForDns(host, log = console.log, timeoutMs = 90000) {
     }
     await new Promise((r) => setTimeout(r, 2000));
   }
-  throw new Error(`tunnel hostname ${host} never resolved (waited ${timeoutMs / 1000}s)`);
+  log(`  ⚠️  couldn't confirm DNS locally after ${Math.round(timeoutMs / 1000)}s.`);
+  log('     Your network may block DNS lookups; the tunnel is probably fine.');
+  log('     Continuing — the self-test will confirm.');
+  return null;
 }
 
 /** Start a quick tunnel (no Cloudflare account needed) and resolve its URL. */
@@ -177,8 +225,8 @@ async function startTunnel(port, { timeoutMs = 150000, log = console.log } = {})
       if (m && !resolving) {
         resolving = true;
         waitForDns(new URL(m[0]).hostname, log)
-          .then(() => done(resolve, { url: m[0], proc }))
-          .catch((e) => { proc.kill(); done(reject, e); });
+          .catch(() => null) // never fatal
+          .then(() => done(resolve, { url: m[0], proc }));
       }
     };
 
@@ -189,4 +237,4 @@ async function startTunnel(port, { timeoutMs = 150000, log = console.log } = {})
   });
 }
 
-module.exports = { startTunnel, ensureCloudflared, findCloudflared };
+module.exports = { startTunnel, ensureCloudflared, findCloudflared, resolveAny, resolveDoH };
