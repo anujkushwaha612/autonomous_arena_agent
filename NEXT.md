@@ -1,3 +1,1 @@
-# NEXT.md — handoff notes for the next agent
-
-T1 done. App skeleton built under `app/`: package.json, tsconfig (strict), db.ts (degraded mode without mongodb-memory-server per rules), Express server with health route, minimal React client, smoke tests pass. Next task is T2 (Error handling, logging & config validation).
+T1 complete: built the stdlib SQLite schema/migration layer, frozen domain models, HTTP router with health endpoint, CLI skeleton, environment template, and committed migration contract test. The server creates its database lazily and uses degraded-safe local SQLite; next task is T2 accounts.

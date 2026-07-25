@@ -197,7 +197,7 @@ test having run first.
 ## Task list
 
 ### T1: Database, schema & HTTP skeleton
-**STATUS: TODO**
+**STATUS: DONE**
 
 The foundation. Deliberately the largest task because nothing else can start.
 
@@ -398,3 +398,4 @@ Re-run the T1/T3/T7 committed tests — they must still pass.
 ## Activity Log
 
 <!-- Agents append one line here per completed task -->
+- T1 completed: SQLite schema, models, router, health API, CLI skeleton, and migration test.
