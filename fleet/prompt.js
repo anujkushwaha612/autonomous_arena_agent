@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 function buildAssignmentPrompt({
   repoUrl,
+  repoRef = null,
   taskId,
   lane,
   ingestUrl,
@@ -25,7 +26,11 @@ LANE: ${lane}
 TASK_ID: ${taskId}
 TASK FILE: ${taskFile}
 
-Clone ${repoUrl} into a fresh directory and read ${taskFile}. Read fleet/contracts/contracts.ts when it exists. Do only this task.
+Clone ${repoUrl}${repoRef ? ` at branch ${repoRef}` : ""} into a fresh directory and read ${taskFile}. Read fleet/contracts/contracts.ts when it exists. Do only this task.
+
+Use this exact clone command so your patch is based on the fleet integration state:
+    git clone ${repoRef ? `--branch ${repoRef} ` : ""}${repoUrl} forgeguard-work
+    cd forgeguard-work
 
 HARD BOUNDARIES
 - You may modify ONLY these repository-relative files: ${ownedFiles.map((f) => `\`${f}\``).join(", ")}.

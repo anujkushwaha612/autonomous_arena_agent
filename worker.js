@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-'use strict';
+"use strict";
 /**
  * AgentChain worker.
  *
@@ -13,13 +13,13 @@
  * corruption, no truncation, and no settle-wait.
  */
 
-const { execSync } = require('child_process');
-const fs = require('fs');
-const path = require('path');
+const { execSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
 
 let chromium;
 try {
-  ({ chromium } = require('playwright'));
+  ({ chromium } = require("playwright"));
 } catch {
   console.error(`
 ❌ Playwright is not installed.
@@ -30,7 +30,7 @@ try {
   process.exit(1);
 }
 
-const CONFIG = require('./config');
+const CONFIG = require("./config");
 
 /**
  * Append one JSON line per event to run.log.jsonl.
@@ -41,39 +41,42 @@ function logEvent(event) {
   try {
     fs.appendFileSync(
       CONFIG.runLogFile,
-      JSON.stringify({ ts: new Date().toISOString(), ...event }) + '\n'
+      JSON.stringify({ ts: new Date().toISOString(), ...event }) + "\n",
     );
   } catch {}
 }
-const { startIngest } = require('./fastcapture/ingest-server');
-const { startTunnel, resolveAny } = require('./fastcapture/tunnel');
-const { findReceipt, applyDrop } = require('./fastcapture/claim');
-const { runGate } = require('./fastcapture/gate');
-const { buildFeedback } = require('./fastcapture/feedback');
-const { buildAssignmentPrompt } = require('./fleet/prompt');
+const { startIngest } = require("./fastcapture/ingest-server");
+const { startTunnel, resolveAny } = require("./fastcapture/tunnel");
+const { findReceipt, applyDrop } = require("./fastcapture/claim");
+const { runGate } = require("./fastcapture/gate");
+const { buildFeedback } = require("./fastcapture/feedback");
+const { buildAssignmentPrompt } = require("./fleet/prompt");
 
 // ── shell helpers ────────────────────────────────────────────────────────────
 const sh = (cmd) =>
-  execSync(cmd, { cwd: CONFIG.repoRoot, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+  execSync(cmd, {
+    cwd: CONFIG.repoRoot,
+    stdio: ["ignore", "pipe", "pipe"],
+  }).toString();
 const shQuiet = (cmd) => {
   try {
     return sh(cmd);
   } catch {
-    return '';
+    return "";
   }
 };
 
 // ── main ─────────────────────────────────────────────────────────────────────
 async function main() {
-  console.log('\n╔══════════════════════════════════════════╗');
-  console.log('║  AgentChain worker                       ║');
-  console.log('╚══════════════════════════════════════════╝');
+  console.log("\n╔══════════════════════════════════════════╗");
+  console.log("║  AgentChain worker                       ║");
+  console.log("╚══════════════════════════════════════════╝");
   console.log(`  repo: ${CONFIG.repoRoot}`);
 
   preflight();
 
   // 1. ingest server (in-process — no second terminal needed)
-  console.log('\n▸ Starting ingest…');
+  console.log("\n▸ Starting ingest…");
   const ingest = await startIngest({
     port: CONFIG.ingestPort,
     token: CONFIG.ingestToken,
@@ -84,7 +87,7 @@ async function main() {
   let ingestUrl = CONFIG.ingestUrl;
   let tunnelProc = null;
   if (!ingestUrl && CONFIG.tunnel) {
-    console.log('\n▸ Opening tunnel (so the agent can reach your machine)…');
+    console.log("\n▸ Opening tunnel (so the agent can reach your machine)…");
     const t = await startTunnel(CONFIG.ingestPort);
     ingestUrl = t.url;
     tunnelProc = t.proc;
@@ -92,23 +95,35 @@ async function main() {
   } else if (!ingestUrl) {
     ingestUrl = `http://localhost:${CONFIG.ingestPort}`;
     console.log(`  ⚠️  TUNNEL=off and no INGEST_URL — using ${ingestUrl}`);
-    console.log('     The agent sandbox must be able to reach that address.');
+    console.log("     The agent sandbox must be able to reach that address.");
   } else {
     console.log(`\n▸ Using INGEST_URL: ${ingestUrl}`);
   }
 
   const cleanup = () => {
-    try { ingest.close(); } catch {}
-    if (tunnelProc) { try { tunnelProc.kill(); } catch {} }
+    try {
+      ingest.close();
+    } catch {}
+    if (tunnelProc) {
+      try {
+        tunnelProc.kill();
+      } catch {}
+    }
   };
   // Ctrl+C: finish the round in flight if possible, then stop. Progress is
   // committed per-round, so nothing is ever lost mid-session.
   let stopRequested = false;
-  process.on('SIGINT', () => {
-    if (stopRequested) { console.log('\n  Forced exit.'); cleanup(); process.exit(130); }
+  process.on("SIGINT", () => {
+    if (stopRequested) {
+      console.log("\n  Forced exit.");
+      cleanup();
+      process.exit(130);
+    }
     stopRequested = true;
-    console.log('\n  ⏹  Stop requested — finishing the current task, then exiting.');
-    console.log('     (press Ctrl+C again to quit immediately)');
+    console.log(
+      "\n  ⏹  Stop requested — finishing the current task, then exiting.",
+    );
+    console.log("     (press Ctrl+C again to quit immediately)");
   });
   global.__shouldStop = () => stopRequested;
 
@@ -119,12 +134,16 @@ async function main() {
   // something (DNS, the trycloudflare domain), not that the tunnel is down. The
   // agent's sandbox uses completely different DNS and routing, so it may well
   // succeed where we failed. Stopping the run on that would be wrong.
-  console.log('\n▸ Self-testing the public URL (new tunnels take ~15s to propagate)…');
+  console.log(
+    "\n▸ Self-testing the public URL (new tunnels take ~15s to propagate)…",
+  );
   const reachable = await selfTest(ingestUrl, {
     onProgress: (m) => console.log(`     …${m}`),
   });
   if (reachable.ok) {
-    console.log(`  ✅ reachable from the internet (${reachable.ms}ms round trip)`);
+    console.log(
+      `  ✅ reachable from the internet (${reachable.ms}ms round trip)`,
+    );
   } else {
     console.log(`
   ⚠️  Could NOT confirm the URL from this machine.
@@ -151,7 +170,7 @@ async function main() {
   if (Number.isFinite(budget)) {
     console.log(
       `\n▸ Session budget: ${budget} task(s) this sitting ` +
-        `(${totalAtStart} unfinished overall).`
+        `(${totalAtStart} unfinished overall).`,
     );
   }
 
@@ -159,7 +178,7 @@ async function main() {
     for (let round = 1; round <= CONFIG.maxRounds; round++) {
       console.log(`\n═══════════════ ROUND ${round} ═══════════════`);
 
-      shQuiet('git pull --ff-only');
+      shQuiet("git pull --ff-only");
 
       // Make sure the remote really has our last commit before the next agent
       // clones. A fixed sleep is a guess; this checks the actual state.
@@ -167,12 +186,14 @@ async function main() {
 
       const remaining = countTodo();
       if (remaining === 0) {
-        console.log('  🎉 No TODO tasks left in agents.md. Project complete!');
+        console.log("  🎉 No TODO tasks left in agents.md. Project complete!");
         break;
       }
       console.log(
         `  ${remaining} task(s) remaining` +
-          (Number.isFinite(budget) ? `  •  ${completedThisSession}/${budget} done this session` : '')
+          (Number.isFinite(budget)
+            ? `  •  ${completedThisSession}/${budget} done this session`
+            : ""),
       );
 
       const nonce = String(Date.now());
@@ -181,18 +202,21 @@ async function main() {
         : buildPrompt({ round, nonce, ingestUrl });
       const anchor = `###WORKER_ANCHOR_${nonce}###`;
 
-      const context = await chromium.launchPersistentContext(CONFIG.browserProfileDir, {
-        headless: CONFIG.headless,
-        viewport: { width: 1366, height: 900 },
-        args: [
-          '--disable-blink-features=AutomationControlled',
-          '--no-sandbox',
-          '--disable-infobars',
-        ],
-        userAgent:
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-          '(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-      });
+      const context = await chromium.launchPersistentContext(
+        CONFIG.browserProfileDir,
+        {
+          headless: CONFIG.headless,
+          viewport: { width: 1366, height: 900 },
+          args: [
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-infobars",
+          ],
+          userAgent:
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        },
+      );
       const page = context.pages()[0] || (await context.newPage());
 
       // The browser stays OPEN past the gate so a rejection can be fed back to
@@ -200,30 +224,38 @@ async function main() {
       let result;
       let roundOutcome = null; // set by the feedback loop below
       try {
-        await page.goto(CONFIG.newChatUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.goto(CONFIG.newChatUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: 60000,
+        });
         await ensureLoggedIn(page);
         await tryNewChat(page);
         await typePrompt(page, prompt);
         await submit(page);
-        console.log('  ⏳ Waiting for agent…');
+        console.log("  ⏳ Waiting for agent…");
         result = await waitForResult(page, anchor);
       } catch (e) {
         await context.close().catch(() => {});
         throw e;
       }
 
-      if (result.kind === 'failed' || result.kind === 'timeout') {
+      if (result.kind === "failed" || result.kind === "timeout") {
         await context.close().catch(() => {});
         const what =
-          result.kind === 'failed'
+          result.kind === "failed"
             ? `Agent reported failure: ${result.reason}`
-            : 'Timed out waiting for the agent.';
+            : "Timed out waiting for the agent.";
         consecutiveFailures++;
-        logEvent({ event: 'round_failed', round, kind: result.kind, reason: result.reason || null });
+        logEvent({
+          event: "round_failed",
+          round,
+          kind: result.kind,
+          reason: result.reason || null,
+        });
         console.log(`\n  ❌ ${what}`);
         if (consecutiveFailures >= CONFIG.maxConsecutiveFailures) {
           console.log(
-            `     ${consecutiveFailures} failed rounds in a row — stopping for review.`
+            `     ${consecutiveFailures} failed rounds in a row — stopping for review.`,
           );
           break;
         }
@@ -231,17 +263,17 @@ async function main() {
         // shouldn't end an unattended run. Nothing was committed, so retrying
         // the same task is safe.
         console.log(
-          `     Retrying (${consecutiveFailures}/${CONFIG.maxConsecutiveFailures} consecutive failures).`
+          `     Retrying (${consecutiveFailures}/${CONFIG.maxConsecutiveFailures} consecutive failures).`,
         );
         continue;
       }
-      if (result.kind === 'done') {
+      if (result.kind === "done") {
         await context.close().catch(() => {});
         if (countTodo() > 0) {
-          console.log('  ⚠️  Agent said ALL_DONE but TODOs remain — retrying.');
+          console.log("  ⚠️  Agent said ALL_DONE but TODOs remain — retrying.");
           continue;
         }
-        console.log('\n  🎉 All tasks complete!');
+        console.log("\n  🎉 All tasks complete!");
         break;
       }
 
@@ -294,11 +326,11 @@ async function main() {
 
           console.log(
             `\n  🔁 Gate rejected — asking the same agent to fix it ` +
-              `(attempt ${attempt + 1}/${CONFIG.maxRepairAttempts})…`
+              `(attempt ${attempt + 1}/${CONFIG.maxRepairAttempts})…`,
           );
           e.gateErrors.slice(0, 5).forEach((g) => console.log(`     • ${g}`));
           logEvent({
-            event: 'repair_requested',
+            event: "repair_requested",
             round,
             attempt: attempt + 1,
             errors: e.gateErrors,
@@ -319,26 +351,38 @@ async function main() {
           try {
             await typePrompt(page, message);
             await submit(page);
-            console.log('  ⏳ Waiting for the fix…');
-            fixed = await waitForResult(page, `###WORKER_ANCHOR_${feedbackNonce}###`);
+            console.log("  ⏳ Waiting for the fix…");
+            fixed = await waitForResult(
+              page,
+              `###WORKER_ANCHOR_${feedbackNonce}###`,
+            );
           } catch (uiErr) {
             console.log(`  ⚠️  Could not deliver feedback: ${uiErr.message}`);
             break;
           }
 
-          if (fixed.kind !== 'receipt') {
-            console.log(`  ⚠️  Agent did not return a new patch (${fixed.kind}). Giving up on repair.`);
+          if (fixed.kind !== "receipt") {
+            console.log(
+              `  ⚠️  Agent did not return a new patch (${fixed.kind}). Giving up on repair.`,
+            );
             break;
           }
           if (seenReceipts.has(fixed.receipt)) {
-            console.log('  ⚠️  Agent re-sent the same receipt — it did not upload a fix.');
+            console.log(
+              "  ⚠️  Agent re-sent the same receipt — it did not upload a fix.",
+            );
             break;
           }
 
           seenReceipts.add(fixed.receipt);
           result = fixed;
           console.log(`  🎫 New receipt: ${fixed.receipt}`);
-          logEvent({ event: 'repair_received', round, attempt: attempt + 1, receipt: fixed.receipt });
+          logEvent({
+            event: "repair_received",
+            round,
+            attempt: attempt + 1,
+            receipt: fixed.receipt,
+          });
         }
       }
 
@@ -350,7 +394,7 @@ async function main() {
       if (applyError) {
         consecutiveFailures++;
         logEvent({
-          event: 'apply_failed',
+          event: "apply_failed",
           round,
           receipt: result.receipt,
           error: applyError.message,
@@ -358,25 +402,37 @@ async function main() {
         });
         console.error(`\n  ❌ Could not apply drop: ${applyError.message}`);
         if (applyError.gateFailure) {
-          console.error("     The agent's code did not pass validation; nothing was committed.");
+          console.error(
+            "     The agent's code did not pass validation; nothing was committed.",
+          );
         }
         if (consecutiveFailures >= CONFIG.maxConsecutiveFailures) {
-          console.error(`     ${consecutiveFailures} failures in a row — stopping for review.`);
+          console.error(
+            `     ${consecutiveFailures} failures in a row — stopping for review.`,
+          );
           break;
         }
         console.error(
-          `     Retrying (${consecutiveFailures}/${CONFIG.maxConsecutiveFailures} consecutive failures).`
+          `     Retrying (${consecutiveFailures}/${CONFIG.maxConsecutiveFailures} consecutive failures).`,
         );
         continue;
       }
 
       try {
-        if (r.mode === 'skipped') {
+        if (r.mode === "skipped") {
           console.log(`  ↪️  Already applied (${r.note}).`);
         } else {
-          console.log(`  ✅ Applied ${r.bytes}B via ${r.mode}, committed & pushed.`);
+          console.log(
+            `  ✅ Applied ${r.bytes}B via ${r.mode}, committed & pushed.`,
+          );
           completedThisSession++;
-          logEvent({ event: 'task_done', round, receipt: result.receipt, bytes: r.bytes, mode: r.mode });
+          logEvent({
+            event: "task_done",
+            round,
+            receipt: result.receipt,
+            bytes: r.bytes,
+            mode: r.mode,
+          });
 
           // Agents sometimes do the work and even log it, but forget to flip
           // their task's STATUS to DONE. The task then gets redone next round,
@@ -386,17 +442,25 @@ async function main() {
           if (!CONFIG.fleetTaskId && todoAfter >= todoBefore) {
             const fixed = markFirstTodoDone();
             if (fixed) {
-              console.log(`  🩹 Agent forgot to flip STATUS — marked "${fixed}" DONE.`);
-              logEvent({ event: 'status_repaired', round, task: fixed });
+              console.log(
+                `  🩹 Agent forgot to flip STATUS — marked "${fixed}" DONE.`,
+              );
+              logEvent({ event: "status_repaired", round, task: fixed });
               try {
-                sh('git add agents.md');
-                sh(`git commit -q -m "chore: mark ${fixed} DONE (agent omitted status flip)"`);
-                sh('git push -q');
+                sh("git add agents.md");
+                sh(
+                  `git commit -q -m "chore: mark ${fixed} DONE (agent omitted status flip)"`,
+                );
+                sh("git push -q");
               } catch (e) {
-                console.log(`  ⚠️  could not push status repair: ${e.message.split('\n')[0]}`);
+                console.log(
+                  `  ⚠️  could not push status repair: ${e.message.split("\n")[0]}`,
+                );
               }
             } else {
-              console.log('  ⚠️  Task count did not drop and no TODO found to repair.');
+              console.log(
+                "  ⚠️  Task count did not drop and no TODO found to repair.",
+              );
             }
           }
         }
@@ -405,44 +469,66 @@ async function main() {
         // in agents.md, so the next run resumes at the first unfinished task.
         if (global.__shouldStop && global.__shouldStop()) {
           const left = countTodo();
-          console.log(`\n  ⏹  Stopped by request after ${completedThisSession} task(s).`);
-          console.log(`     ${left} remaining — progress saved & pushed. Re-run to resume.`);
+          console.log(
+            `\n  ⏹  Stopped by request after ${completedThisSession} task(s).`,
+          );
+          console.log(
+            `     ${left} remaining — progress saved & pushed. Re-run to resume.`,
+          );
           break;
         }
 
         if (completedThisSession >= budget) {
           const left = countTodo();
-          console.log(`\n  🛑 Session budget reached (${completedThisSession} task(s) done).`);
+          console.log(
+            `\n  🛑 Session budget reached (${completedThisSession} task(s) done).`,
+          );
           if (left > 0) {
-            console.log(`     ${left} task(s) still to do — progress is saved & pushed.`);
-            console.log('     Resume any time with:');
-            console.log(`       TASKS=${budget} node worker.js    (next ${budget})`);
-            console.log('       node worker.js                (finish everything)');
+            console.log(
+              `     ${left} task(s) still to do — progress is saved & pushed.`,
+            );
+            console.log("     Resume any time with:");
+            console.log(
+              `       TASKS=${budget} node worker.js    (next ${budget})`,
+            );
+            console.log(
+              "       node worker.js                (finish everything)",
+            );
           } else {
-            console.log('     🎉 That was the last one — project complete!');
+            console.log("     🎉 That was the last one — project complete!");
           }
           break;
         }
         consecutiveFailures = 0; // a clean round resets the counter
       } catch (e) {
         consecutiveFailures++;
-        logEvent({ event: 'apply_failed', round, receipt: result.receipt, error: e.message, gate: !!e.gateFailure });
+        logEvent({
+          event: "apply_failed",
+          round,
+          receipt: result.receipt,
+          error: e.message,
+          gate: !!e.gateFailure,
+        });
         console.error(`\n  ❌ Could not apply drop: ${e.message}`);
         if (e.gateFailure) {
-          console.error('     The agent\'s code did not pass validation; nothing was committed.');
+          console.error(
+            "     The agent's code did not pass validation; nothing was committed.",
+          );
         }
         if (consecutiveFailures >= CONFIG.maxConsecutiveFailures) {
-          console.error(`     ${consecutiveFailures} failures in a row — stopping for review.`);
+          console.error(
+            `     ${consecutiveFailures} failures in a row — stopping for review.`,
+          );
           break;
         }
         console.error(
-          `     Retrying (${consecutiveFailures}/${CONFIG.maxConsecutiveFailures} consecutive failures).`
+          `     Retrying (${consecutiveFailures}/${CONFIG.maxConsecutiveFailures} consecutive failures).`,
         );
         continue;
       }
     }
   } catch (err) {
-    console.error('\n  ❌ Worker error:', err.message);
+    console.error("\n  ❌ Worker error:", err.message);
   } finally {
     cleanup();
   }
@@ -450,23 +536,27 @@ async function main() {
   // Session summary — always tell the user exactly where they left off.
   try {
     const left = countTodo();
-    const total = (fs.readFileSync(CONFIG.brainFile, 'utf8').match(/^\*\*STATUS:\s*(TODO|DONE)\*\*\s*$/gim) || []).length;
-    console.log('\n────────────── session summary ──────────────');
+    const total = (
+      fs
+        .readFileSync(CONFIG.brainFile, "utf8")
+        .match(/^\*\*STATUS:\s*(TODO|DONE)\*\*\s*$/gim) || []
+    ).length;
+    console.log("\n────────────── session summary ──────────────");
     console.log(`  completed this session : ${completedThisSession}`);
     console.log(`  overall progress       : ${total - left}/${total} done`);
     if (left > 0) {
       console.log(`  remaining              : ${left}`);
-      console.log('\n  Resume any time:');
-      console.log('    npm run status        # see where you are');
-      console.log('    TASKS=5 node worker.js  # next 5 tasks');
-      console.log('    node worker.js          # finish everything');
+      console.log("\n  Resume any time:");
+      console.log("    npm run status        # see where you are");
+      console.log("    TASKS=5 node worker.js  # next 5 tasks");
+      console.log("    node worker.js          # finish everything");
     } else {
-      console.log('\n  🎉 All tasks complete.');
+      console.log("\n  🎉 All tasks complete.");
     }
-    console.log('─────────────────────────────────────────────');
+    console.log("─────────────────────────────────────────────");
   } catch {}
 
-  console.log('\nWorker finished.\n');
+  console.log("\nWorker finished.\n");
   process.exit(0);
 }
 
@@ -483,7 +573,7 @@ async function main() {
  * against a generous deadline instead of failing on the first ENOTFOUND.
  */
 function selfTest(baseUrl, { timeoutMs = 90000, onProgress = () => {} } = {}) {
-  const mod = baseUrl.startsWith('https') ? require('https') : require('http');
+  const mod = baseUrl.startsWith("https") ? require("https") : require("http");
   const started = Date.now();
   const host = new URL(baseUrl).hostname;
 
@@ -494,27 +584,37 @@ function selfTest(baseUrl, { timeoutMs = 90000, onProgress = () => {} } = {}) {
         {
           host: ip || host,
           servername: host, // correct SNI when connecting by IP
-          headers: { Host: host, 'User-Agent': 'agentchain-selftest' },
-          path: '/health',
-          port: baseUrl.startsWith('https') ? 443 : 80,
+          headers: { Host: host, "User-Agent": "agentchain-selftest" },
+          path: "/health",
+          port: baseUrl.startsWith("https") ? 443 : 80,
           timeout: 10000,
         },
         (res) => {
           const chunks = [];
-          res.on('data', (c) => chunks.push(c));
-          res.on('end', () => {
+          res.on("data", (c) => chunks.push(c));
+          res.on("end", () => {
             const body = Buffer.concat(chunks).toString();
-            if (res.statusCode === 200 && body.includes('"ok"')) resolve({ ok: true });
-            else resolve({ ok: false, error: `HTTP ${res.statusCode}: ${body.slice(0, 100)}` });
+            if (res.statusCode === 200 && body.includes('"ok"'))
+              resolve({ ok: true });
+            else
+              resolve({
+                ok: false,
+                error: `HTTP ${res.statusCode}: ${body.slice(0, 100)}`,
+              });
           });
-        }
+        },
       );
-      req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'timed out' }); });
-      req.on('error', (e) => resolve({ ok: false, error: e.code || e.message }));
+      req.on("timeout", () => {
+        req.destroy();
+        resolve({ ok: false, error: "timed out" });
+      });
+      req.on("error", (e) =>
+        resolve({ ok: false, error: e.code || e.message }),
+      );
     });
 
   return (async () => {
-    let last = { ok: false, error: 'no attempt made' };
+    let last = { ok: false, error: "no attempt made" };
     let n = 0;
     while (Date.now() - started < timeoutMs) {
       const ip = await resolveAny(host).catch(() => null);
@@ -522,14 +622,15 @@ function selfTest(baseUrl, { timeoutMs = 90000, onProgress = () => {} } = {}) {
       if (last.ok) return { ok: true, ms: Date.now() - started, ip };
       n++;
       if (n === 3 || n % 8 === 0) {
-        onProgress(`${last.error} — retrying (${Math.round((Date.now() - started) / 1000)}s)`);
+        onProgress(
+          `${last.error} — retrying (${Math.round((Date.now() - started) / 1000)}s)`,
+        );
       }
       await new Promise((r) => setTimeout(r, 2000));
     }
     return { ...last, ms: Date.now() - started };
   })();
 }
-
 
 /**
  * Confirm the remote's HEAD matches ours before the next agent clones.
@@ -540,49 +641,55 @@ function selfTest(baseUrl, { timeoutMs = 90000, onProgress = () => {} } = {}) {
  * subsequent clone. Cheap insurance, no wasted time.
  */
 function waitForRemoteSync(timeoutMs = 30000) {
-  const local = shQuiet('git rev-parse HEAD').trim();
+  const local = shQuiet("git rev-parse HEAD").trim();
   if (!local) return;
-  const branch = (shQuiet('git rev-parse --abbrev-ref HEAD').trim() || 'main');
+  const branch = shQuiet("git rev-parse --abbrev-ref HEAD").trim() || "main";
   const started = Date.now();
   let warned = false;
 
   while (Date.now() - started < timeoutMs) {
     const out = shQuiet(`git ls-remote origin ${branch}`).trim();
-    const remote = out.split(/\s+/)[0] || '';
+    const remote = out.split(/\s+/)[0] || "";
     if (remote === local) {
       const ms = Date.now() - started;
-      if (ms > 1500) console.log(`  ✅ remote in sync after ${Math.round(ms / 1000)}s`);
+      if (ms > 1500)
+        console.log(`  ✅ remote in sync after ${Math.round(ms / 1000)}s`);
       return;
     }
     if (!warned) {
-      console.log('  ⏳ waiting for the remote to reflect our push…');
+      console.log("  ⏳ waiting for the remote to reflect our push…");
       warned = true;
     }
-    execSync(process.platform === 'win32' ? 'timeout /t 2 /nobreak > NUL' : 'sleep 2', {
-      stdio: 'ignore',
-    });
+    execSync(
+      process.platform === "win32" ? "timeout /t 2 /nobreak > NUL" : "sleep 2",
+      {
+        stdio: "ignore",
+      },
+    );
   }
-  console.log('  ⚠️  remote still behind after 30s — continuing anyway.');
+  console.log("  ⚠️  remote still behind after 30s — continuing anyway.");
 }
-
 
 /**
  * Flip the FIRST `**STATUS: TODO**` to DONE and return that task's heading.
  * Used to repair a round where the agent did the work but forgot the flip.
  */
 function markFirstTodoDone() {
-  const src = fs.readFileSync(CONFIG.brainFile, 'utf8');
-  const lines = src.split('\n');
+  const src = fs.readFileSync(CONFIG.brainFile, "utf8");
+  const lines = src.split("\n");
   for (let i = 0; i < lines.length; i++) {
     if (/^\*\*STATUS:\s*TODO\*\*\s*$/i.test(lines[i])) {
-      lines[i] = '**STATUS: DONE**';
+      lines[i] = "**STATUS: DONE**";
       // Walk back to the nearest "### ..." heading for a human-readable name.
-      let title = 'task';
+      let title = "task";
       for (let j = i - 1; j >= 0 && j > i - 8; j--) {
         const m = lines[j].match(/^###\s+(.+?)\s*$/);
-        if (m) { title = m[1]; break; }
+        if (m) {
+          title = m[1];
+          break;
+        }
       }
-      fs.writeFileSync(CONFIG.brainFile, lines.join('\n'));
+      fs.writeFileSync(CONFIG.brainFile, lines.join("\n"));
       return title;
     }
   }
@@ -591,7 +698,7 @@ function markFirstTodoDone() {
 
 // ── setup checks ─────────────────────────────────────────────────────────────
 function preflight() {
-  if (!fs.existsSync(path.join(CONFIG.repoRoot, '.git'))) {
+  if (!fs.existsSync(path.join(CONFIG.repoRoot, ".git"))) {
     console.error(`
 ❌ ${CONFIG.repoRoot} is not a git repository.
 
@@ -615,28 +722,42 @@ function preflight() {
  * marker. Prose mentioning "STATUS: TODO" in docs must not inflate the count.
  */
 function countTodo() {
-  const txt = fs.readFileSync(CONFIG.brainFile, 'utf8');
+  const txt = fs.readFileSync(CONFIG.brainFile, "utf8");
   const m = txt.match(/^\*\*STATUS:\s*TODO\*\*\s*$/gim);
   return m ? m.length : 0;
 }
 
 function buildPrompt({ round, nonce, ingestUrl }) {
   return fs
-    .readFileSync(CONFIG.promptFile, 'utf8')
-    .split('<<<REPO_URL>>>').join(CONFIG.repoUrl)
-    .split('<<<INGEST_URL>>>').join(ingestUrl)
-    .split('<<<INGEST_TOKEN>>>').join(CONFIG.ingestToken)
-    .split('<<<WORK_DIR>>>').join(CONFIG.workDir)
-    .split('<<<ROUND>>>').join(String(round))
-    .split('<<<NONCE>>>').join(nonce);
+    .readFileSync(CONFIG.promptFile, "utf8")
+    .split("<<<REPO_URL>>>")
+    .join(CONFIG.repoUrl)
+    .split("<<<INGEST_URL>>>")
+    .join(ingestUrl)
+    .split("<<<INGEST_TOKEN>>>")
+    .join(CONFIG.ingestToken)
+    .split("<<<WORK_DIR>>>")
+    .join(CONFIG.workDir)
+    .split("<<<ROUND>>>")
+    .join(String(round))
+    .split("<<<NONCE>>>")
+    .join(nonce);
 }
 
 function buildFleetPrompt({ round, nonce, ingestUrl }) {
-  if (!CONFIG.fleetTaskId || !CONFIG.fleetLane || !CONFIG.fleetTaskFile || !CONFIG.fleetAllowedFiles) {
-    throw new Error('fleet mode requires FLEET_TASK_ID, FLEET_LANE, FLEET_TASK_FILE and FLEET_ALLOWED_FILES');
+  if (
+    !CONFIG.fleetTaskId ||
+    !CONFIG.fleetLane ||
+    !CONFIG.fleetTaskFile ||
+    !CONFIG.fleetAllowedFiles
+  ) {
+    throw new Error(
+      "fleet mode requires FLEET_TASK_ID, FLEET_LANE, FLEET_TASK_FILE and FLEET_ALLOWED_FILES",
+    );
   }
   return buildAssignmentPrompt({
     repoUrl: CONFIG.repoUrl,
+    repoRef: CONFIG.fleetRepoRef,
     taskId: CONFIG.fleetTaskId,
     lane: CONFIG.fleetLane,
     ingestUrl,
@@ -645,38 +766,42 @@ function buildFleetPrompt({ round, nonce, ingestUrl }) {
     nonce,
     taskFile: CONFIG.fleetTaskFile,
     ownedFiles: CONFIG.fleetAllowedFiles,
-    verify: CONFIG.fleetVerifyCmd || 'npm test',
+    verify: CONFIG.fleetVerifyCmd || "npm test",
   });
 }
 
 // ── browser helpers ──────────────────────────────────────────────────────────
 async function findComposer(page) {
-  const visible = page.locator(CONFIG.inputSelectors.join(', ')).filter({ visible: true });
+  const visible = page
+    .locator(CONFIG.inputSelectors.join(", "))
+    .filter({ visible: true });
   const n = await visible.count().catch(() => 0);
   return n === 0 ? null : visible.last();
 }
 
 async function ensureLoggedIn(page, timeoutMs = 10 * 60 * 1000) {
   if ((await findComposer(page)) !== null) return;
-  console.log('\n  👉 Please LOG IN to Arena in the browser window. Waiting…');
+  console.log("\n  👉 Please LOG IN to Arena in the browser window. Waiting…");
   const deadline = Date.now() + timeoutMs;
   while ((await findComposer(page)) === null) {
     // If the user closed the window, page.waitForTimeout throws a confusing
     // "Target page, context or browser has been closed". Detect it and fail
     // with something actionable instead.
     if (page.isClosed && page.isClosed()) {
-      throw new Error('browser window was closed while waiting for login');
+      throw new Error("browser window was closed while waiting for login");
     }
     if (Date.now() > deadline) {
-      throw new Error(`no login detected after ${Math.round(timeoutMs / 60000)} minutes`);
+      throw new Error(
+        `no login detected after ${Math.round(timeoutMs / 60000)} minutes`,
+      );
     }
     try {
       await page.waitForTimeout(2000);
     } catch {
-      throw new Error('browser window was closed while waiting for login');
+      throw new Error("browser window was closed while waiting for login");
     }
   }
-  console.log('  ✅ Logged in.');
+  console.log("  ✅ Logged in.");
 }
 
 async function tryNewChat(page) {
@@ -698,13 +823,14 @@ async function typePrompt(page, text, { composerTimeoutMs = 60000 } = {}) {
     // repair round. Poll instead of a single hard wait.
     const deadline = Date.now() + composerTimeoutMs;
     while (!input && Date.now() < deadline) {
-      if (page.isClosed && page.isClosed()) throw new Error('browser page was closed');
+      if (page.isClosed && page.isClosed())
+        throw new Error("browser page was closed");
       await page.waitForTimeout(1500).catch(() => {});
       input = await findComposer(page);
     }
     if (!input) {
       throw new Error(
-        `chat composer did not become available within ${Math.round(composerTimeoutMs / 1000)}s`
+        `chat composer did not become available within ${Math.round(composerTimeoutMs / 1000)}s`,
       );
     }
   }
@@ -726,7 +852,10 @@ async function typePrompt(page, text, { composerTimeoutMs = 60000 } = {}) {
 
 async function entered(page, text) {
   const tail = text.slice(-40);
-  return page.evaluate((t) => (document.body.innerText || '').includes(t), tail);
+  return page.evaluate(
+    (t) => (document.body.innerText || "").includes(t),
+    tail,
+  );
 }
 
 async function submit(page) {
@@ -738,7 +867,7 @@ async function submit(page) {
       return;
     }
   }
-  await page.keyboard.press('Enter');
+  await page.keyboard.press("Enter");
   await page.waitForTimeout(500);
 }
 
@@ -752,26 +881,34 @@ async function waitForResult(page, anchor) {
   let tick = 0;
 
   while (Date.now() < deadline) {
-    const body = await page.evaluate(() => document.body.innerText || '').catch(() => '');
+    const body = await page
+      .evaluate(() => document.body.innerText || "")
+      .catch(() => "");
     const at = body.lastIndexOf(anchor);
     const fresh = at >= 0 ? body.slice(at + anchor.length) : body;
 
     const receipt = findReceipt(fresh, CONFIG.receiptRegex);
-    if (receipt) return { kind: 'receipt', receipt };
+    if (receipt) return { kind: "receipt", receipt };
 
     if (CONFIG.sentinelFailedRegex.test(fresh)) {
-      const line = fresh.split('\n').find((l) => l.includes('HANDOFF_FAILED')) || '';
-      return { kind: 'failed', reason: line.replace(/%%%HANDOFF_FAILED%%%/g, '').trim() };
+      const line =
+        fresh.split("\n").find((l) => l.includes("HANDOFF_FAILED")) || "";
+      return {
+        kind: "failed",
+        reason: line.replace(/%%%HANDOFF_FAILED%%%/g, "").trim(),
+      };
     }
-    if (CONFIG.sentinelDoneRegex.test(fresh)) return { kind: 'done' };
+    if (CONFIG.sentinelDoneRegex.test(fresh)) return { kind: "done" };
 
     if (++tick % 15 === 0) {
-      const mins = Math.round((Date.now() - (deadline - CONFIG.maxTaskMs)) / 60000);
+      const mins = Math.round(
+        (Date.now() - (deadline - CONFIG.maxTaskMs)) / 60000,
+      );
       console.log(`     …still working (${mins}m)`);
     }
     await page.waitForTimeout(CONFIG.pollIntervalMs);
   }
-  return { kind: 'timeout' };
+  return { kind: "timeout" };
 }
 
 main().catch((e) => {

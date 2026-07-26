@@ -3,7 +3,7 @@
 /** Deterministic fleet supervisor. It owns state, retries, and merge truth. */
 const fs = require("fs");
 const path = require("path");
-const { spawn } = require("child_process");
+const { spawn, execFileSync } = require("child_process");
 const { loadGraph, saveGraph } = require("./taskgraph");
 const { nextWave } = require("./scheduler");
 const { createWorktree, removeWorktree } = require("./worktree-manager");
@@ -143,6 +143,25 @@ function failure(graph, id, reason) {
   else delete task.nextEligibleAt;
   return "requeued";
 }
+function git(args) {
+  return execFileSync("git", args, {
+    cwd: TARGET_ROOT,
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+    .toString()
+    .trim();
+}
+function publishIntegration() {
+  const branch = TARGET?.integrationBranch || "integration";
+  // State lives on integration, never on main. Publish before assignments so
+  // remote Arena sandboxes clone the exact base the coordinator will merge.
+  git(["switch", branch]);
+  if (git(["status", "--porcelain"]).trim()) {
+    git(["add", TARGET?.taskGraph || "fleet/taskgraph.json"]);
+    git(["commit", "-m", "fleet: persist task state"]);
+  }
+  git(["push", "-u", "origin", branch]);
+}
 function recoverOrphans(project) {
   const graph = validate(project);
   let n = 0;
@@ -182,6 +201,7 @@ async function executeTask(project, item, slot, options) {
     ...process.env,
     FLEET_WORKTREE_ROOT: wt.dir,
     REPO_URL: TARGET?.repoUrl || process.env.REPO_URL,
+    FLEET_REPO_REF: TARGET?.integrationBranch || "integration",
     TASKS: "1",
     FLEET_TASK_ID: id,
     FLEET_LANE: task.lane,
@@ -282,11 +302,13 @@ async function mergeAccepted(project, results) {
       console.error(`✗ ${state} ${result.id}: ${merged.stage}`);
     }
     saveGraph(graphFile(project), graph);
+    publishIntegration();
     removeWorktree(TARGET_ROOT, { lane: task.lane, taskId: result.id });
   }
 }
 async function run(project, options) {
   ensureIntegration(TARGET_ROOT, TARGET?.baseBranch || "main");
+  publishIntegration();
   const lanes = parseLanes(options.lanes);
   const cap = Number(options["max-parallel"] || 1);
   const staggerMs = Number(options["stagger-ms"] || 60000);
@@ -319,6 +341,8 @@ async function run(project, options) {
   }
 }
 async function runOne(project, id) {
+  ensureIntegration(TARGET_ROOT, TARGET?.baseBranch || "main");
+  publishIntegration();
   const graph = validate(project);
   if (!graph.tasks[id]) throw new Error(`unknown task ${id}`);
   if (graph.tasks[id].requiresHumanApproval && !graph.tasks[id].humanApproved)

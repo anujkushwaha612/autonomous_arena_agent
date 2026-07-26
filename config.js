@@ -1,12 +1,12 @@
-'use strict';
+"use strict";
 /**
  * Single source of truth for the whole pipeline.
  * Everything can be overridden with env vars, but the defaults are chosen so
  * that a bare `node worker.js` just works.
  */
 
-const path = require('path');
-const crypto = require('crypto');
+const path = require("path");
+const crypto = require("crypto");
 
 // In normal mode the controller and patched repository are the same. Fleet
 // mode runs this controller against a separate product worktree.
@@ -21,33 +21,38 @@ module.exports = {
   // The repo the agent clones and you push to.
   repoUrl:
     process.env.REPO_URL ||
-    'https://github.com/anujkushwaha612/autonomous_arena_agent.git',
+    "https://github.com/anujkushwaha612/autonomous_arena_agent.git",
 
   // ── ingest (out-of-band patch channel) ────────────────────────────────────
   ingestPort: Number(process.env.INGEST_PORT || 8787),
   // Random per-run unless you pin it. The agent only needs it for one round.
-  ingestToken: process.env.INGEST_TOKEN || crypto.randomBytes(16).toString('hex'),
-  dropDir: process.env.DROP_DIR || path.join(repoRoot, 'fastcapture', 'drops'),
-  runLogFile: path.join(pipelineRoot, 'run.log.jsonl'),
+  ingestToken:
+    process.env.INGEST_TOKEN || crypto.randomBytes(16).toString("hex"),
+  dropDir: process.env.DROP_DIR || path.join(repoRoot, "fastcapture", "drops"),
+  runLogFile: path.join(pipelineRoot, "run.log.jsonl"),
 
   // Public URL the AGENT SANDBOX will POST to.
   // Leave unset and the worker auto-starts a cloudflared quick tunnel.
   ingestUrl: process.env.INGEST_URL || null,
   // Set TUNNEL=off to skip tunnelling (e.g. you already expose the port).
-  tunnel: process.env.TUNNEL !== 'off',
+  tunnel: process.env.TUNNEL !== "off",
 
   // ── browser automation ────────────────────────────────────────────────────
-  newChatUrl: process.env.ARENA_URL || 'https://arena.ai/agent',
+  newChatUrl: process.env.ARENA_URL || "https://arena.ai/agent",
   // Fleet workers get isolated profiles/worktrees via environment; the legacy
   // single-worker path keeps its original defaults.
-  browserProfileDir: process.env.ARENA_PROFILE_DIR || path.join(pipelineRoot, '.arena-profile'),
+  browserProfileDir:
+    process.env.ARENA_PROFILE_DIR || path.join(pipelineRoot, ".arena-profile"),
   fleetTaskId: process.env.FLEET_TASK_ID || null,
   fleetLane: process.env.FLEET_LANE || null,
   fleetTaskFile: process.env.FLEET_TASK_FILE || null,
-  fleetAllowedFiles: process.env.FLEET_ALLOWED_FILES ? JSON.parse(process.env.FLEET_ALLOWED_FILES) : null,
+  fleetRepoRef: process.env.FLEET_REPO_REF || null,
+  fleetAllowedFiles: process.env.FLEET_ALLOWED_FILES
+    ? JSON.parse(process.env.FLEET_ALLOWED_FILES)
+    : null,
   fleetVerifyCmd: process.env.FLEET_VERIFY_CMD || null,
-  fleetNoPush: process.env.FLEET_NO_PUSH === 'true',
-  headless: process.env.HEADLESS === 'true',
+  fleetNoPush: process.env.FLEET_NO_PUSH === "true",
+  headless: process.env.HEADLESS === "true",
 
   inputSelectors: [
     'textarea:not([id*="recaptcha"]):not([name*="recaptcha"]):not([class*="recaptcha"])',
@@ -68,9 +73,9 @@ module.exports = {
   ],
 
   // ── protocol ──────────────────────────────────────────────────────────────
-  promptFile: path.join(pipelineRoot, 'AGENT_PROMPT.md'),
-  brainFile: path.join(pipelineRoot, 'agents.md'),
-  nextFile: path.join(pipelineRoot, 'NEXT.md'),
+  promptFile: path.join(pipelineRoot, "AGENT_PROMPT.md"),
+  brainFile: path.join(pipelineRoot, "agents.md"),
+  nextFile: path.join(pipelineRoot, "NEXT.md"),
 
   // Sentinels must appear ON THEIR OWN LINE. A plain substring check fires
   // when the agent merely *quotes* the instruction while thinking out loud
@@ -101,7 +106,7 @@ module.exports = {
   // ── quality gate ──────────────────────────────────────────────────────────
   // Validate the agent's work before committing. Syntax + JSON + contract
   // checks always run; VERIFY_CMD adds your own tests/lint/build.
-  gateEnabled: process.env.GATE !== 'off',
+  gateEnabled: process.env.GATE !== "off",
 
   // ── repair loop ───────────────────────────────────────────────────────────
   // When the gate rejects a patch, paste the exact errors back into the SAME
@@ -109,7 +114,7 @@ module.exports = {
   // the difference between a gate that judges and a gate that teaches.
   //   REPAIR=off      disable entirely (one-shot agents)
   //   MAX_REPAIRS=3   how many fix attempts per round
-  repairEnabled: process.env.REPAIR !== 'off',
+  repairEnabled: process.env.REPAIR !== "off",
   maxRepairAttempts: Number(process.env.MAX_REPAIRS || 2),
 
   // ── project shape (task-type agnostic) ────────────────────────────────────
@@ -117,14 +122,14 @@ module.exports = {
   //   WORK_DIR=notebooks   (an ML project)
   //   WORK_DIR=docs        (a writing project)
   //   WORK_DIR=.           (work at the repo root)
-  workDir: process.env.WORK_DIR || 'app',
+  workDir: process.env.WORK_DIR || "app",
   // Command that boots a long-running service for smoke tests. Set to '' for
   // projects with nothing to boot (data, docs, libraries, notebooks).
   //   SMOKE_CMD="python -m uvicorn main:app"   (FastAPI)
   //   SMOKE_CMD=""                              (no server; tests run directly)
   // NOTE: `??`, not `||` — SMOKE_CMD="" is a meaningful value meaning
   // "there is no server to boot", and `||` would silently ignore it.
-  smokeCmd: process.env.SMOKE_CMD ?? 'npm start',
+  smokeCmd: process.env.SMOKE_CMD ?? "npm start",
   // Runtime smoke tests: boot the app and exercise it.
   // Runtime verification. Three levels, so the pipeline suits any project type:
   //   SMOKE=off            no runtime checks at all (docs, data, research)
@@ -139,7 +144,7 @@ module.exports = {
   // machine to re-verify too (it is the only thing that catches OS-specific
   // bugs, e.g. a POSIX-only npm script failing on Windows).
   //   SMOKE=on node worker.js
-  smokeEnabled: process.env.SMOKE === 'on',
+  smokeEnabled: process.env.SMOKE === "on",
   verifyCmd: process.env.VERIFY_CMD || null,
   verifyTimeoutMs: Number(process.env.VERIFY_TIMEOUT_MS || 300000),
   // No SETTLE_TIME. A partial receipt cannot match the regex, so there is
