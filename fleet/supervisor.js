@@ -38,19 +38,29 @@ function prepareProject(project) {
       { stdio: "inherit" },
     );
   }
-  require("child_process").execFileSync("git", ["fetch", "origin"], {
-    cwd: TARGET_ROOT,
-    stdio: "inherit",
-  });
+  try {
+    require("child_process").execFileSync("git", ["fetch", "origin"], {
+      cwd: TARGET_ROOT,
+      stdio: "inherit",
+    });
+  } catch (e) {
+    console.warn(`fleet supervisor: git fetch failed (network?): ${e.message}`);
+    console.warn("fleet supervisor: continuing with local clone as-is.");
+  }
   require("child_process").execFileSync(
     "git",
     ["checkout", TARGET.baseBranch || "main"],
     { cwd: TARGET_ROOT, stdio: "inherit" },
   );
-  require("child_process").execFileSync("git", ["pull", "--ff-only"], {
-    cwd: TARGET_ROOT,
-    stdio: "inherit",
-  });
+  try {
+    require("child_process").execFileSync("git", ["pull", "--ff-only"], {
+      cwd: TARGET_ROOT,
+      stdio: "inherit",
+    });
+  } catch (e) {
+    console.warn(`fleet supervisor: git pull failed (network?): ${e.message}`);
+    console.warn("fleet supervisor: continuing with local clone as-is.");
+  }
 }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function args(argv) {
