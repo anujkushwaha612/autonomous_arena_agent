@@ -44,7 +44,7 @@ function claim(dropDir, receipt) {
  * Apply a drop to the repo, commit and push.
  * Handles plain diffs and git bundles.
  */
-function applyDrop({ repoRoot, dropDir, receipt, round, gate = null }) {
+function applyDrop({ repoRoot, dropDir, receipt, round, gate = null, allowedFiles = null, push = true }) {
   const { meta, buf } = claim(dropDir, receipt);
   const sh = (c) => execSync(c, { cwd: repoRoot, stdio: ['ignore', 'pipe', 'pipe'] });
 
@@ -58,6 +58,7 @@ function applyDrop({ repoRoot, dropDir, receipt, round, gate = null }) {
   }
 
   if (meta.kind === 'bundle') {
+    if (allowedFiles) throw new Error('bundles are not accepted for scoped fleet assignments');
     // Strongest path: real git history transfer. No diff-context fuzz,
     // binary-safe, carries commit messages and authorship.
     const bundlePath = path.join(repoRoot, `.drop-${receipt}.bundle`);
@@ -170,6 +171,21 @@ function applyDrop({ repoRoot, dropDir, receipt, round, gate = null }) {
       throw new Error(`unresolved conflicts in: ${conflicted.split('\n').join(', ')}`);
     }
 
+    // Fleet assignments have an explicit ownership boundary. Check the actual
+    // resulting diff, not an agent-provided file list, before any gate or commit.
+    if (allowedFiles) {
+      const changed = execSync('git diff --name-only --diff-filter=ACMRD HEAD', { cwd: repoRoot })
+        .toString().split('\n').filter(Boolean);
+      const forbidden = changed.filter((file) => !allowedFiles.includes(file));
+      if (forbidden.length) {
+        rollback();
+        const err = new Error(`patch changed files outside its assignment: ${forbidden.join(', ')}`);
+        err.gateFailure = true;
+        err.gateErrors = forbidden.map((f) => `${f}: outside this task's allowed files`);
+        throw err;
+      }
+    }
+
     // Quality gate: validate the agent's work BEFORE it becomes a commit.
     // A broken file that gets committed is inherited by every later agent.
     if (gate) {
@@ -190,7 +206,7 @@ function applyDrop({ repoRoot, dropDir, receipt, round, gate = null }) {
 
     sh('git add -A');
     sh(`git commit -m "agent: round ${round} (${receipt})"`);
-    sh('git push');
+    if (push) sh('git push');
     return { ok: true, mode, bytes: buf.length };
   } finally {
     fs.rmSync(patchFile, { force: true });

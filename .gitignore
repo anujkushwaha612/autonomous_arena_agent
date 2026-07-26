@@ -24,3 +24,8 @@ app/package-lock.json
 run.log.jsonl
 .env
 data/
+
+# fleet runtime artifacts
+.fleet/
+.arena-profiles/
+fleet/fleet-log.jsonl

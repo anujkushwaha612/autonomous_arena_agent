@@ -3,13 +3,18 @@
   "version": "2.0.0",
   "description": "Autonomous multi-agent coding pipeline with out-of-band patch transport",
   "main": "worker.js",
+  "bin": {
+    "fleet": "fleet/cli.js"
+  },
   "scripts": {
     "start": "node worker.js",
     "login": "node scripts/login.js",
     "ingest": "node fastcapture/ingest-server.js",
     "verify": "node fastcapture/verify.js",
     "status": "node scripts/status.js",
-    "smoke": "node fastcapture/smoke.js"
+    "smoke": "node fastcapture/smoke.js",
+    "fleet": "node fleet/supervisor.js",
+    "fleet:check": "node fleet/self-test.js"
   },
   "dependencies": {
     "playwright": "^1.48.0"

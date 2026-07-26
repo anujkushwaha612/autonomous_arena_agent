@@ -120,6 +120,25 @@ const SECRET_PATTERNS = [
 // Files where a fake credential is expected and fine.
 const SECRET_SCAN_SKIP = /(^|\/)(\.env\.example|.*\.example|.*\.sample|.*\.md|package-lock\.json)$/i;
 
+// Type suppressions can make an integration gate look green while hiding the
+// exact cross-lane contract drift the fleet exists to catch. This is fleet-only
+// because documentation may legitimately describe these directives.
+const SUPPRESSION_RX = /@ts-ignore|@ts-expect-error|@ts-nocheck|eslint-disable|#\s*type:\s*ignore|#\s*noqa|@SuppressWarnings/;
+function checkSuppressions(repoRoot, files) {
+  if (!process.env.FLEET_TASK_ID) return [];
+  const errors = [];
+  for (const f of files) {
+    if (/\.md$/i.test(f)) continue;
+    const abs = path.join(repoRoot, f);
+    try {
+      const text = fs.readFileSync(abs, 'utf8');
+      const match = text.match(SUPPRESSION_RX);
+      if (match) errors.push(`${f}:${text.slice(0, match.index).split('\n').length}: forbidden validation suppression ${match[0]}`);
+    } catch {}
+  }
+  return errors;
+}
+
 function checkForbidden(repoRoot, files) {
   const errors = [];
 
@@ -230,6 +249,7 @@ function runGate(repoRoot, { userCmd = null, smoke = false, timeoutMs = 300000, 
 
   const errors = [
     ...checkForbidden(repoRoot, files),
+    ...checkSuppressions(repoRoot, files),
     ...checkJson(repoRoot, files),
     ...checkSyntax(repoRoot, files),
   ];
@@ -274,4 +294,4 @@ function runGate(repoRoot, { userCmd = null, smoke = false, timeoutMs = 300000, 
   return { ok: errors.length === 0, errors, checked: files.length };
 }
 
-module.exports = { runGate, changedFiles, baselineErrors };
+module.exports = { runGate, changedFiles, baselineErrors, checkSuppressions };

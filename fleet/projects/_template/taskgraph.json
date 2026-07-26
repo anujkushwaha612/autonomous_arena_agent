@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "integrationVerify": "pnpm typecheck && pnpm test",
+  "tasks": {
+    "FG-001": {
+      "title": "Example scoped task",
+      "lane": "core",
+      "status": "todo",
+      "deps": [],
+      "needs": ["fleet/contracts/contracts.ts"],
+      "owns": [
+        "packages/core/src/example.ts",
+        "packages/core/tests/example.test.ts"
+      ],
+      "verify": "pnpm test example"
+    }
+  }
+}

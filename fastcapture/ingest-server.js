@@ -78,6 +78,9 @@ function startIngest({ port, token, dropDir, quiet = false }) {
       const kind = url.searchParams.get('kind') === 'bundle' ? 'bundle' : 'patch';
       // Sanitised: only ever recorded in JSON metadata, never used in a path.
       const round = (url.searchParams.get('round') || '0').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32);
+      const lane = (url.searchParams.get('lane') || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+      const taskId = (url.searchParams.get('task') || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+      const attempt = (url.searchParams.get('attempt') || '').replace(/[^0-9]/g, '').slice(0, 8);
 
       // The filename comes ONLY from the sha256 hash we computed ourselves and
       // a whitelisted `kind`, so no caller-controlled string reaches the path.
@@ -95,6 +98,9 @@ function startIngest({ port, token, dropDir, quiet = false }) {
             sha256: sha,
             kind,
             round,
+            lane,
+            taskId,
+            attempt,
             bytes: body.length,
             wireBytes: raw.length,
             receivedAt: new Date().toISOString(),

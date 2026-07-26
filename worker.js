@@ -50,6 +50,7 @@ const { startTunnel, resolveAny } = require('./fastcapture/tunnel');
 const { findReceipt, applyDrop } = require('./fastcapture/claim');
 const { runGate } = require('./fastcapture/gate');
 const { buildFeedback } = require('./fastcapture/feedback');
+const { buildAssignmentPrompt } = require('./fleet/prompt');
 
 // ── shell helpers ────────────────────────────────────────────────────────────
 const sh = (cmd) =>
@@ -175,7 +176,9 @@ async function main() {
       );
 
       const nonce = String(Date.now());
-      const prompt = buildPrompt({ round, nonce, ingestUrl });
+      const prompt = CONFIG.fleetTaskId
+        ? buildFleetPrompt({ round, nonce, ingestUrl })
+        : buildPrompt({ round, nonce, ingestUrl });
       const anchor = `###WORKER_ANCHOR_${nonce}###`;
 
       const context = await chromium.launchPersistentContext(CONFIG.browserProfileDir, {
@@ -273,6 +276,8 @@ async function main() {
             receipt: result.receipt,
             round,
             gate: gateFn,
+            allowedFiles: CONFIG.fleetAllowedFiles,
+            push: !CONFIG.fleetNoPush,
           });
           applyError = null;
           break; // accepted
@@ -378,7 +383,7 @@ async function main() {
           // wasting a full cycle and risking conflicting duplicate work.
           // Detect it and repair it in place.
           const todoAfter = countTodo();
-          if (todoAfter >= todoBefore) {
+          if (!CONFIG.fleetTaskId && todoAfter >= todoBefore) {
             const fixed = markFirstTodoDone();
             if (fixed) {
               console.log(`  🩹 Agent forgot to flip STATUS — marked "${fixed}" DONE.`);
@@ -624,6 +629,24 @@ function buildPrompt({ round, nonce, ingestUrl }) {
     .split('<<<WORK_DIR>>>').join(CONFIG.workDir)
     .split('<<<ROUND>>>').join(String(round))
     .split('<<<NONCE>>>').join(nonce);
+}
+
+function buildFleetPrompt({ round, nonce, ingestUrl }) {
+  if (!CONFIG.fleetTaskId || !CONFIG.fleetLane || !CONFIG.fleetTaskFile || !CONFIG.fleetAllowedFiles) {
+    throw new Error('fleet mode requires FLEET_TASK_ID, FLEET_LANE, FLEET_TASK_FILE and FLEET_ALLOWED_FILES');
+  }
+  return buildAssignmentPrompt({
+    repoUrl: CONFIG.repoUrl,
+    taskId: CONFIG.fleetTaskId,
+    lane: CONFIG.fleetLane,
+    ingestUrl,
+    ingestToken: CONFIG.ingestToken,
+    round,
+    nonce,
+    taskFile: CONFIG.fleetTaskFile,
+    ownedFiles: CONFIG.fleetAllowedFiles,
+    verify: CONFIG.fleetVerifyCmd || 'npm test',
+  });
 }
 
 // ── browser helpers ──────────────────────────────────────────────────────────

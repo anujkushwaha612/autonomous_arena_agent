@@ -34,7 +34,15 @@ module.exports = {
 
   // ── browser automation ────────────────────────────────────────────────────
   newChatUrl: process.env.ARENA_URL || 'https://arena.ai/agent',
-  browserProfileDir: path.join(repoRoot, '.arena-profile'),
+  // Fleet workers get isolated profiles/worktrees via environment; the legacy
+  // single-worker path keeps its original defaults.
+  browserProfileDir: process.env.ARENA_PROFILE_DIR || path.join(repoRoot, '.arena-profile'),
+  fleetTaskId: process.env.FLEET_TASK_ID || null,
+  fleetLane: process.env.FLEET_LANE || null,
+  fleetTaskFile: process.env.FLEET_TASK_FILE || null,
+  fleetAllowedFiles: process.env.FLEET_ALLOWED_FILES ? JSON.parse(process.env.FLEET_ALLOWED_FILES) : null,
+  fleetVerifyCmd: process.env.FLEET_VERIFY_CMD || null,
+  fleetNoPush: process.env.FLEET_NO_PUSH === 'true',
   headless: process.env.HEADLESS === 'true',
 
   inputSelectors: [
