@@ -8,10 +8,14 @@
 const path = require('path');
 const crypto = require('crypto');
 
-const repoRoot = __dirname;
+// In normal mode the controller and patched repository are the same. Fleet
+// mode runs this controller against a separate product worktree.
+const pipelineRoot = __dirname;
+const repoRoot = process.env.FLEET_WORKTREE_ROOT || pipelineRoot;
 
 module.exports = {
   repoRoot,
+  pipelineRoot,
 
   // ── your project ───────────────────────────────────────────────────────────
   // The repo the agent clones and you push to.
@@ -24,7 +28,7 @@ module.exports = {
   // Random per-run unless you pin it. The agent only needs it for one round.
   ingestToken: process.env.INGEST_TOKEN || crypto.randomBytes(16).toString('hex'),
   dropDir: process.env.DROP_DIR || path.join(repoRoot, 'fastcapture', 'drops'),
-  runLogFile: path.join(repoRoot, 'run.log.jsonl'),
+  runLogFile: path.join(pipelineRoot, 'run.log.jsonl'),
 
   // Public URL the AGENT SANDBOX will POST to.
   // Leave unset and the worker auto-starts a cloudflared quick tunnel.
@@ -36,7 +40,7 @@ module.exports = {
   newChatUrl: process.env.ARENA_URL || 'https://arena.ai/agent',
   // Fleet workers get isolated profiles/worktrees via environment; the legacy
   // single-worker path keeps its original defaults.
-  browserProfileDir: process.env.ARENA_PROFILE_DIR || path.join(repoRoot, '.arena-profile'),
+  browserProfileDir: process.env.ARENA_PROFILE_DIR || path.join(pipelineRoot, '.arena-profile'),
   fleetTaskId: process.env.FLEET_TASK_ID || null,
   fleetLane: process.env.FLEET_LANE || null,
   fleetTaskFile: process.env.FLEET_TASK_FILE || null,
@@ -64,9 +68,9 @@ module.exports = {
   ],
 
   // ── protocol ──────────────────────────────────────────────────────────────
-  promptFile: path.join(repoRoot, 'AGENT_PROMPT.md'),
-  brainFile: path.join(repoRoot, 'agents.md'),
-  nextFile: path.join(repoRoot, 'NEXT.md'),
+  promptFile: path.join(pipelineRoot, 'AGENT_PROMPT.md'),
+  brainFile: path.join(pipelineRoot, 'agents.md'),
+  nextFile: path.join(pipelineRoot, 'NEXT.md'),
 
   // Sentinels must appear ON THEIR OWN LINE. A plain substring check fires
   // when the agent merely *quotes* the instruction while thinking out loud

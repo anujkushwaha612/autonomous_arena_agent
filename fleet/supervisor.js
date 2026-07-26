@@ -15,6 +15,43 @@ const {
 const { logEvent } = require("./log");
 
 const ROOT = path.resolve(__dirname, "..");
+let TARGET_ROOT = ROOT;
+let TARGET = null;
+function prepareProject(project) {
+  const manifest = path.join(
+    ROOT,
+    "fleet",
+    "projects",
+    project,
+    "project.json",
+  );
+  if (!fs.existsSync(manifest)) return; // legacy controller-local project
+  TARGET = JSON.parse(fs.readFileSync(manifest, "utf8"));
+  TARGET_ROOT =
+    process.env.FLEET_PROJECT_DIR ||
+    path.join(ROOT, ".fleet", "targets", project);
+  if (!fs.existsSync(path.join(TARGET_ROOT, ".git"))) {
+    fs.mkdirSync(path.dirname(TARGET_ROOT), { recursive: true });
+    require("child_process").execFileSync(
+      "git",
+      ["clone", TARGET.repoUrl, TARGET_ROOT],
+      { stdio: "inherit" },
+    );
+  }
+  require("child_process").execFileSync("git", ["fetch", "origin"], {
+    cwd: TARGET_ROOT,
+    stdio: "inherit",
+  });
+  require("child_process").execFileSync(
+    "git",
+    ["checkout", TARGET.baseBranch || "main"],
+    { cwd: TARGET_ROOT, stdio: "inherit" },
+  );
+  require("child_process").execFileSync("git", ["pull", "--ff-only"], {
+    cwd: TARGET_ROOT,
+    stdio: "inherit",
+  });
+}
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function args(argv) {
   const out = { _: [] };
@@ -37,7 +74,9 @@ function projectDir(project) {
   return path.join(ROOT, "fleet", "projects", project);
 }
 function graphFile(project) {
-  return path.join(projectDir(project), "taskgraph.json");
+  return TARGET
+    ? path.join(TARGET_ROOT, TARGET.taskGraph)
+    : path.join(projectDir(project), "taskgraph.json");
 }
 function lanesFromRoot() {
   const dir = path.join(ROOT, "fleet", "lanes");
@@ -49,7 +88,7 @@ function lanesFromRoot() {
   );
 }
 function taskFile(id) {
-  return `fleet/tasks/${id}.md`;
+  return TARGET ? `${TARGET.taskDirectory}/${id}.md` : `fleet/tasks/${id}.md`;
 }
 function parseLanes(value) {
   return value
@@ -64,7 +103,7 @@ function parseLanes(value) {
 function validate(project) {
   const graph = loadGraph(graphFile(project), { lanes: lanesFromRoot() });
   for (const id of Object.keys(graph.tasks))
-    if (!fs.existsSync(path.join(ROOT, taskFile(id))))
+    if (!fs.existsSync(path.join(TARGET_ROOT, taskFile(id))))
       throw new Error(`${id}: missing ${taskFile(id)}`);
   return graph;
 }
@@ -132,7 +171,7 @@ async function executeTask(project, item, slot, options) {
   graph.tasks[id].status = "running";
   graph.tasks[id].attempts = (graph.tasks[id].attempts || 0) + 1;
   saveGraph(file, graph);
-  const wt = createWorktree(ROOT, { lane: task.lane, taskId: id });
+  const wt = createWorktree(TARGET_ROOT, { lane: task.lane, taskId: id });
   logEvent(ROOT, "agent_started", {
     project,
     taskId: id,
@@ -141,6 +180,8 @@ async function executeTask(project, item, slot, options) {
   });
   const env = {
     ...process.env,
+    FLEET_WORKTREE_ROOT: wt.dir,
+    REPO_URL: TARGET?.repoUrl || process.env.REPO_URL,
     TASKS: "1",
     FLEET_TASK_ID: id,
     FLEET_LANE: task.lane,
@@ -154,7 +195,7 @@ async function executeTask(project, item, slot, options) {
   };
   const worker = await runProcess(
     process.execPath,
-    [path.join(wt.dir, "worker.js")],
+    [path.join(ROOT, "worker.js")],
     { cwd: wt.dir, env, stdio: "inherit" },
     options.workerTimeoutMs,
   );
@@ -175,7 +216,7 @@ async function executeTask(project, item, slot, options) {
       state,
       reason: graph.tasks[id].lastError,
     });
-    removeWorktree(ROOT, { lane: task.lane, taskId: id });
+    removeWorktree(TARGET_ROOT, { lane: task.lane, taskId: id });
     return { id, ok: false };
   }
   const laneGate = shell(wt.dir, task.verify);
@@ -189,7 +230,7 @@ async function executeTask(project, item, slot, options) {
       state,
       reason: laneGate.output,
     });
-    removeWorktree(ROOT, { lane: task.lane, taskId: id });
+    removeWorktree(TARGET_ROOT, { lane: task.lane, taskId: id });
     return { id, ok: false };
   }
   graph.tasks[id].status = "accepted";
@@ -209,7 +250,7 @@ async function mergeAccepted(project, results) {
     .sort((a, b) => a.id.localeCompare(b.id))) {
     const graph = validate(project);
     const task = graph.tasks[result.id];
-    const merged = mergeBranch(ROOT, {
+    const merged = mergeBranch(TARGET_ROOT, {
       branch: result.branch,
       taskId: result.id,
       verify: graph.integrationVerify,
@@ -241,11 +282,11 @@ async function mergeAccepted(project, results) {
       console.error(`✗ ${state} ${result.id}: ${merged.stage}`);
     }
     saveGraph(graphFile(project), graph);
-    removeWorktree(ROOT, { lane: task.lane, taskId: result.id });
+    removeWorktree(TARGET_ROOT, { lane: task.lane, taskId: result.id });
   }
 }
 async function run(project, options) {
-  ensureIntegration(ROOT);
+  ensureIntegration(TARGET_ROOT, TARGET?.baseBranch || "main");
   const lanes = parseLanes(options.lanes);
   const cap = Number(options["max-parallel"] || 1);
   const staggerMs = Number(options["stagger-ms"] || 60000);
@@ -292,6 +333,7 @@ async function main() {
   const o = args(process.argv.slice(2));
   const command = o._[0] || "help";
   const project = o.project || "default";
+  prepareProject(project);
   if (command === "validate") {
     validate(project);
     console.log(`✓ ${project} task graph is valid`);

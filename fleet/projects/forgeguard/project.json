@@ -1,0 +1,8 @@
+{
+  "name": "forgeguard",
+  "repoUrl": "https://github.com/anujkushwaha612/forgeguard.git",
+  "baseBranch": "main",
+  "integrationBranch": "integration",
+  "taskGraph": "fleet/taskgraph.json",
+  "taskDirectory": "fleet/tasks"
+}
